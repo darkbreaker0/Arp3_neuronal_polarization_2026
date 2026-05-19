@@ -1,0 +1,36 @@
+---
+title: "ED Fig 1b - 2D-culture pooled-replicate neurite-xcorr"
+output: html_notebook
+---
+
+<!--
+================================================================================
+  WRAPPER for ED Fig 1b (2D culture, pooled-replicate CCF).
+================================================================================
+  This file's role: place the canonical analysis in the EDFig01_coordination
+  directory so `Path_1 <- dirname(...)` resolves here, picking up the
+  2D-culture per-cell CSV inputs (N = 101 from 4 independent experiments).
+
+  Includes the canonical template:
+      ../../templates/pooled_replicate_ccf.Rmd
+
+  Manuscript panel:
+      ED Fig 1b (occurrence of neurons with N extending neurites,
+                  cross-correlation, 2D culture).
+
+  Original G:\ source:
+      G:/Figure S1_coordination/Fig. S1b/R_scripts/Neurite activity corr_comb.Rmd
+      (_comb suffix = combined-replicate, i.e. pooled).
+
+  Sibling that includes the same template (different data directory):
+      figures/EDFig02_actin/edfig02c_neurite_actin_xcorr_pooled_sd.Rmd
+      (ED Fig 2c; pooled-replicate CCF with SD envelope).
+
+  Refactored 2026-05-12: prior 2341-line wrapper had a body byte-identical
+  to its sibling; both moved to a shared canonical template.
+
+  Essentiality: Essential.
+-->
+
+```{r child = "../../templates/pooled_replicate_ccf.Rmd"}
+```

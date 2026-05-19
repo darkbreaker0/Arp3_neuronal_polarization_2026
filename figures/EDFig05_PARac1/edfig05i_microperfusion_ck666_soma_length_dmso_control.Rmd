@@ -1,0 +1,505 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+<!--
+## What this file does
+
+Same Pre/During/Post microperfusion analysis structure as
+``fig03r_microperfusion_actin_response.Rmd`` (which is currently
+in the same Fig03_Arp3 folder), but restricted to the **DMSO control**
+condition only:
+
+1. Reads per-cell intensity CSVs from microperfusion experiments.
+2. Classifies frames as ``1_pre_perfusion`` / ``2_in_perfusion`` /
+   ``3_post_perfusion`` based on metadata-recorded perfusion timing.
+3. Classifies ROIs as ``perfused`` (Roi_1) vs ``non-perfused``.
+4. Compares Pre/During/Post intensity + length values with paired
+   Wilcoxon (within cell) + unpaired Wilcoxon (between conditions).
+5. Multiple ggsave outputs.
+
+## Manuscript panel mapping
+
+The body is the DMSO control side of **ED Fig 5i** (line 354 of docx):
+"Length changes upon micro-perfusion of CK-666 at the soma. ... For
+DMSO control, N = 17 non-perfused neurites and 77 perfused neurites
+of 15 neurons. ... Kruskal-Wallis test." The body's DMSO-only
+microperfusion matches the "15 control neurons" side of this panel.
+The CK-666 side is in ``fig03r_microperfusion_actin_response.Rmd``.
+
+The G:\ source folder ``Fig. 3o-r_local_perfusion\DMSO_control`` hosts
+experiments that feed several ED Fig 5/7 panels.
+
+## Original G:\ source
+
+G:/Figure 3_Arp3/Fig. 3o-r_local_perfusion/DMSO_control/Neurite activity corr.Rmd
+-->
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+#library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(Path_1)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+load(file=saved_path)
+```
+
+# save environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+```
+
+# read csv files of actin_int from the parent folder
+```{r}
+library(readr)  # For faster CSV reading
+library(dplyr)  # For easy data manipulation (optional)
+
+# Function to import all CSVs from a folder and its subfolders
+import_csv_files <- function(directory) {
+  # Get list of all CSV files in the folder and subfolders
+  csv_files <- list.files(directory, pattern = "actin_int.csv$", full.names = TRUE, recursive = TRUE)
+  
+  # Read each file into a list of data frames
+  data_list <- lapply(csv_files, read_csv, show_col_types = FALSE)
+  
+  # Name the list elements with the corresponding file names (without the full path)
+  names(data_list) <- dirname(csv_files) %>% basename()
+  
+  return(data_list)
+}
+
+# Set the parent directory containing CSV files
+parent_directory <- Path_1 
+
+# Import all CSV files
+csv_data_list <- import_csv_files(parent_directory)
+```
+
+# filter for analyzed cells and relevant columns 
+```{r}
+library(readxl)
+cell_meta <- read_excel("Microperfusion_12_TC.xlsx")  %>% as.data.table()
+cell_meta <- cell_meta[analyzed == "Yes" & DMSO_CK666 == "DMSO"]
+cell_meta$perfused_compartment %>% table()
+```
+
+# consider only the first frame of in_perfusion, last frame of in_perfusion, and the last frame of post_perfusion
+```{r}
+
+data_norm_list_2 <- list()
+
+for (n in 1: length (data_norm_list)){
+  
+    df <- data_norm_list[[n]]
+    df_in <- df[period=="2_in_perfusion"]
+    
+    df_in_max <- df_in[Frame == max(df_in$Frame)]
+    df_in_max$period <- "2_in_perfusion"
+    
+    df_in_min <- df_in[Frame == min(df_in$Frame)]
+    df_in_min$period <- "1_pre_perfusion"
+
+df_post <- df[period=="3_post_perfusion"]
+    df_post_max <- df_post[Frame == (max(df_post$Frame)-12)]
+    
+    data_norm_list_2[[n]] <- rbind(df_in_max, df_in_min, df_post_max) %>% as.data.table()
+    
+}
+```
+
+```{r, message = FALSE, warning=FALSE, fig.width=10}
+n =18
+
+meta <- cell_meta[Cell== names(csv_data_list)[n]]
+
+data_norm_list[[n]] %>%
+ggplot(aes(x = Frame, y = int)) + 
+  geom_line(aes(color = Roi),  size=2)+
+  
+  #scale_x_continuous( expand = c(0, 0), limits = c(450, 744), breaks = scales::pretty_breaks(n = 7))+
+  #scale_y_continuous( expand = c(0, 0), limits = c(0.5, 2), breaks = scales::pretty_breaks(n = 7))+
+  
+  geom_vline(xintercept=meta$perfusion_start, linetype="dashed", color = "red")+
+  geom_vline(xintercept=meta$perfusion_end, linetype="dashed", color = "red")+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+```
+
+```{r}
+all_df <- data_norm_list %>% bind_rows() %>% as.data.table()
+
+df_summary <- all_df %>% group_by(period, perfusion_site,  cell, perfusion_compartment) %>%  rstatix::get_summary_stats(int) %>% as.data.table()
+df_summary$group <- paste(df_summary$cell, df_summary$period, sep = "_")
+df_summary$site_period <- paste(df_summary$perfusion_site, df_summary$period, sep = "_")
+df_summary$cell_site_period <- paste(df_summary$cell, df_summary$site_period, sep = "_")
+```
+
+```{r}
+outliers <- df_summary %>% 
+  group_by(site_period) %>% 
+ rstatix::identify_outliers(mean) 
+
+ df_summary <- df_summary [! (group %in% outliers$group) ]
+```
+
+```{r}
+df_summary$cell %>% table()
+ df_summary <- df_summary [! (cell %in% "Control_20250227_1") ]
+```
+
+```{r}
+all_df <- data_norm_list_2 %>% bind_rows() %>% as.data.table()
+
+df_summary_2 <- all_df %>% group_by(period, perfusion_site,  cell, perfusion_compartment) %>%  rstatix::get_summary_stats(int) %>% as.data.table()
+df_summary_2$group <- paste(df_summary_2$cell, df_summary_2$period, sep = "_")
+df_summary_2$site_period <- paste(df_summary_2$perfusion_site, df_summary_2$period, sep = "_")
+df_summary_2$cell_site_period <- paste(df_summary_2$cell, df_summary_2$site_period, sep = "_")
+```
+
+```{r}
+outliers <- df_summary_2 %>% 
+  group_by(site_period) %>% 
+ rstatix::identify_outliers(mean) 
+
+df_summary_2 <- df_summary_2 [! (cell_site_period %in% outliers$cell_site_period) ]
+
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+library(colorspace)
+library(ggpubr)
+
+# my_comparisons <- df_summary$site_period %>% unique() %>% as.character() %>% combn(2, simplify = FALSE) 
+my_comparisons <- list(c("non-perfused_1_pre_perfusion", "non-perfused_2_in_perfusion"), c("non-perfused_2_in_perfusion", "non-perfused_3_post_perfusion"), c("non-perfused_1_pre_perfusion", "non-perfused_3_post_perfusion"), c("perfused_1_pre_perfusion", "perfused_2_in_perfusion"), c("perfused_2_in_perfusion", "perfused_3_post_perfusion"), c("perfused_1_pre_perfusion", "perfused_3_post_perfusion"))
+
+pj <- position_jitter(seed = 1, width = .1, height = 0)
+
+# define group order
+perfusion_site_order <- c("perfused", "non-perfused")
+period_order <- c("1_pre_perfusion",   "2_in_perfusion", "3_post_perfusion")
+
+ site_period_order <- c("non-perfused_1_pre_perfusion", "non-perfused_2_in_perfusion", "non-perfused_3_post_perfusion", "perfused_1_pre_perfusion", "perfused_2_in_perfusion", "perfused_3_post_perfusion")
+#site_period_order <- c("non-perfused_pre_perfusion", "perfused_pre_perfusion", "non-perfused_in_perfusion", "perfused_in_perfusion", "non-perfused_post_perfusion",   "perfused_post_perfusion")
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+df_summary %>%  mutate(site_period = factor(site_period, levels=site_period_order))  %>%
+
+ggplot(aes(x=site_period, y=mean, fill=perfusion_site))+
+  #geom_point()
+  theme_classic()+
+ geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=0.8, scale = "width")  +
+ geom_boxplot(aes(), width=0.2, fill="white", outlier.colour = NA)+ 
+  
+ # geom_jitter(alpha=1, aes(color = period), position = position_jitterdodge(jitter.width=.1)) + 
+  
+  geom_point(position = pj) +
+
+# geom_path(aes(group = cell),alpha = 0.5, position = pj)+
+  stat_compare_means(comparisons = my_comparisons, test = "wilcox.test", paired=F)+
+ # scale_color_continuous_sequential(palette = "Heat", begin = 0.3, end = 1)+ 
+ scale_y_continuous(expand = c(0, 0), limits = c(0, 3), breaks = scales::pretty_breaks(n = 10))+ 
+
+  theme_ipsum(grid = F, ticks = T) +
+ theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold"), axis.text.x = element_text(angle = 0)) #for centering the text 
+```
+
+```{r}
+ggsave(
+  "soma_control.pdf",
+  plot = last_plot(),
+  device = "pdf")
+
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+
+ my_comparisons <- list(c("non-perfused_1_pre_perfusion", "non-perfused_2_in_perfusion"), c("non-perfused_2_in_perfusion", "non-perfused_3_post_perfusion"), c("non-perfused_1_pre_perfusion", "non-perfused_3_post_perfusion"))
+
+# my_comparisons <- list( c("perfused_1_pre_perfusion", "perfused_2_in_perfusion"), c("perfused_2_in_perfusion", "perfused_3_post_perfusion"), c("perfused_1_pre_perfusion", "perfused_3_post_perfusion"))
+
+df_summary [perfusion_site == "non-perfused"] %>%  mutate(site_period = factor(site_period, levels=site_period_order))  %>%
+
+ggplot(aes(x=site_period, y=mean, fill=perfusion_site))+
+  #geom_point()
+  theme_classic()+
+ geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=0.8, scale = "width")  +
+ geom_boxplot(aes(), width=0.2, fill="white", outlier.colour = NA)+ 
+  
+ # geom_jitter(alpha=1, aes(color = period), position = position_jitterdodge(jitter.width=.1)) + 
+  
+  geom_point(position = pj) +
+
+geom_path(aes(group = cell),alpha = 0.5, position = pj)+
+  stat_compare_means(comparisons = my_comparisons, test = "wilcox.test", paired=T)+
+ # scale_color_continuous_sequential(palette = "Heat", begin = 0.3, end = 1)+ 
+ scale_y_continuous(expand = c(0, 0), limits = c(0, 2.5), breaks = scales::pretty_breaks(n = 10))+ 
+
+  theme_ipsum(grid = F, ticks = T) +
+ theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold"), axis.text.x = element_text(angle = 90)) #for centering the text 
+```
+
+```{r}
+ggsave(
+  "soma_control_nonPerfused_paired.pdf",
+  plot = last_plot(),
+  device = "pdf")
+
+```
+# Attempt to see if there is trend of change over time
+```{r}
+all_df <- data_norm_list %>% bind_rows() %>% as.data.frame()  %>% as.data.table()
+
+df <- all_df[period == "2_in_perfusion" & perfusion_site == "perfused"]
+
+cell_meta$perfused_compartment %>% table()
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+library(colorspace)
+df  %>% 
+ggplot(aes(x=new_time, y=int, color=cell)) +
+  #geom_point()
+  theme_classic()+
+
+ # geom_boxplot(fill="bisque",color="black",alpha=0.5, outliers = F) +
+  geom_jitter(alpha=1) + 
+ # scale_color_continuous_sequential(palette = "Heat", begin = 0.3, end = 1)+ 
+ # scale_y_continuous(expand = c(0, 0), limits = c(0, 1.5), breaks = scales::pretty_breaks(n = 10))+ 
+   scale_x_continuous(expand = c(0, 0), limits = c(0, 6000), breaks = scales::pretty_breaks(n = 10))+ 
+  theme_ipsum(grid = F, ticks = T) +
+ theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+```
+
+```{r}
+outliers <- df %>% 
+  group_by(new_time) %>% 
+ rstatix::identify_outliers(int) 
+
+df <- df [! ((cell %in% outliers$cell) &  (time %in% outliers$time))]
+
+```
+
+```{r}
+df_summary_in_perfusion <- df %>%  
+  group_by(new_time) %>% rstatix::get_summary_stats(int) %>% as.data.table()
+
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=8}
+
+df_summary_in_perfusion[n>1] %>% 
+  
+ggplot(aes(x=new_time, y=mean)) +
+
+  geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="lightgrey", alpha=1)+
+  geom_line(size=1) +
+  
+ # geom_vline(xintercept=0, linetype="dashed", color = "black")+
+ # geom_hline(yintercept=0, linetype="dashed", color = "black")+
+  
+ # stat_peaks(colour = "red", ignore_threshold = 0.9) +
+ # stat_peaks(geom = "text", colour = "red", vjust = -0.5, ignore_threshold = 0.9) +
+  
+#  stat_valleys(colour = "blue", ignore_threshold = 0.9, span = 11)+
+ # stat_valleys(geom = "text", colour = "blue", angle = 45, vjust = 1.5, hjust = 1, ignore_threshold = 0.9, span = 11)+
+  
+  scale_y_continuous(expand = c(0, 0), limits = c(-0.4, 2), breaks = scales::pretty_breaks(n = 7))+
+ #scale_x_continuous(expand = c(0, 0), limits = c(0, 5000), breaks = scales::pretty_breaks(n = 8)) + 
+  
+  theme_ipsum(grid = F, ticks = T)+ 
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+# read csv files of length from the parent folder
+```{r}
+library(readr)  # For faster CSV reading
+library(dplyr)  # For easy data manipulation (optional)
+
+# Function to import all CSVs from a folder and its subfolders
+import_csv_files <- function(directory) {
+  # Get list of all CSV files in the folder and subfolders
+  csv_files <- list.files(directory, pattern = "length.csv$", full.names = TRUE, recursive = TRUE)
+  
+  # Read each file into a list of data frames
+  data_list <- lapply(csv_files, read_csv, show_col_types = FALSE)
+  
+  # Name the list elements with the corresponding file names (without the full path)
+  names(data_list) <- dirname(csv_files) %>% basename()
+  
+  return(data_list)
+}
+
+# Set the parent directory containing CSV files
+parent_directory <- Path_1 
+
+# Import all CSV files
+length_data_list <- import_csv_files(parent_directory)
+```
+
+# add metadata and define the perfusion window
+
+```{r}
+length_df <- length_norm_list %>% rbindlist() %>% as.data.table()
+length_df$mean <- rowMeans(length_df[,c(4:6)])
+length_df$Diff<- length_df$`2_in_perfusion` - length_df$`1_pre_perfusion`
+
+length_df$`1_pre_perfusion_norm` <- length_df$`1_pre_perfusion` - length_df$mean
+length_df$`2_in_perfusion_norm` <- length_df$`2_in_perfusion` - length_df$mean
+length_df$`3_post_perfusion_norm` <- length_df$`3_post_perfusion` - length_df$mean
+
+#saveRDS(length_df, file="Control_GC_neuriteLength.rds")
+
+length_df_long<- pivot_longer(length_df, cols=c(9:11), names_to = "Series", values_to="length")  %>% as.data.table()
+length_df_long$cell_neurite <- paste(length_df_long$cell, length_df_long$neurite, sep = "_")
+
+#length_df_long$Series <- factor(length_df_long$Series, levels=unique(length_df_long$Series))    
+```
+
+```{r}
+length_df_long  <-  length_df_long  [! (cell_neurite %in% "Control_20250313_2_ext_ret_Neurite_7") ]
+```
+
+```{r}
+outliers <- length_df_long %>% 
+  group_by(Series) %>% 
+ rstatix::identify_outliers(mean) 
+
+  length_df_long <-  length_df_long [! (cell_neurite %in% outliers$cell_neurite), ]
+```
+
+```{r, message = FALSE, warning=FALSE, fig.width=8}
+library(ggpubr)
+
+my_comparisons <- length_df_long$Series %>% unique() %>% as.character() %>% combn(2, simplify = FALSE) 
+
+#neurite_length_long<- neurite_length_long%>% subset(neurite_length_long$Series != "Post")
+
+length_df_long %>% 
+ggplot(aes(x=Series, y=length, fill=Series)) + 
+  geom_violin(trim=FALSE, 
+              kernel ="gaussian", 
+              adjust=1.3)+
+  #geom_boxplot(width=2, fill="white")  +
+  geom_point(aes(fill=Series, group=cell_neurite), position = position_dodge(0.2))+
+  geom_line(aes(group=cell_neurite), position = position_dodge(0.2)) +
+  stat_compare_means(comparisons = my_comparisons, paired=T, method="wilcox.test")+
+  #scale_y_continuous( expand = c(0, 0), limits = c(-25, 50), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+# plotly::ggplotly(p)
+```
+
+```{r}
+df_summary <- length_df_long %>% 
+  group_by(Series,  cell) %>%  
+  rstatix::get_summary_stats(length) %>% 
+  as.data.table()
+
+df_summary$mean <- df_summary$mean * 0.333
+```
+
+```{r, message = FALSE, warning=FALSE, fig.width=8}
+library(ggpubr)
+
+my_comparisons <- length_df_long$Series %>% unique() %>% as.character() %>% combn(2, simplify = FALSE) 
+
+#neurite_length_long<- neurite_length_long%>% subset(neurite_length_long$Series != "Post")
+
+df_summary %>% 
+ggplot(aes(x=Series, y=mean, fill=Series)) + 
+  geom_violin(trim=FALSE, 
+              kernel ="gaussian", 
+              adjust=1.3)+
+  #geom_boxplot(width=2, fill="white")  +
+  geom_point(aes(fill=Series, group=cell), position = position_dodge(0.2))+
+  geom_line(aes(group=cell), position = position_dodge(0.2)) +
+  stat_compare_means(comparisons = my_comparisons, paired=T, method="wilcox.test")+
+  scale_y_continuous( expand = c(0, 0), limits = c(-15, 15), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+# plotly::ggplotly(p)
+```
+
+```{r}
+ggsave(
+  "soma_control_length_paired.pdf",
+  plot = last_plot(),
+  device = "pdf")
+
+```

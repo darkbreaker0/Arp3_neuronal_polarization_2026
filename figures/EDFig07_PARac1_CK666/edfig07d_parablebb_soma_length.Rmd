@@ -1,0 +1,283 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(easyGgplot2)
+library(ggpubr)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+#library("pheatmap")
+#library("RColorBrewer")
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+#library(superheat)
+library(ggpubr)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "neurite_length.RData",  sep = "/")
+load(file=saved_path)
+
+```
+
+```{r message=FALSE}
+
+
+csv_file<- list.files(Path_1,
+                      pattern = "*.csv",
+                     recursive = TRUE,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+
+
+# dirname(Path_1)
+
+csv_list<- list()
+library(stringr)
+
+  
+for (n in 1:length(csv_file)) 
+{
+  csv_list[[n]] <- readr::read_delim(csv_file[n], ",", escape_double = FALSE, col_names = T, trim_ws = TRUE) %>% as.data.frame()
+
+  names(csv_list)[n]<-  csv_file[n] %>% dirname() 
+  
+}
+
+
+
+```
+
+```{r}
+length_df <- csv_list[[1]]
+
+for (n in 2:length(csv_list)) 
+{
+  length_df <- rbind(length_df, csv_list[[n]])
+ 
+}
+
+length_df$Series<- c("Pre", "Act", "Post")
+
+length_df$roi <- rep(1:96, each=3) 
+
+length_df$Length <- length_df$Length*0.222222
+
+length_df$cell <- length_df$Label %>% str_remove(regex("\\.tif.*$", ignore_case = TRUE))
+
+length_df$cell %>% table()
+```
+
+```{r}
+GC_length_wide<- pivot_wider(length_df, id_cols = c("roi", "cell"), names_from = "Series", values_from = "Length")
+
+GC_length_wide$mean<- rowMeans(GC_length_wide[,c(3:5)])
+GC_length_wide$Treatment<- "Blebb"
+GC_length_wide$Diff<- GC_length_wide$Act - GC_length_wide$Pre
+GC_length_wide$Pre <- GC_length_wide$Pre - GC_length_wide$mean
+GC_length_wide$Act <- GC_length_wide$Act - GC_length_wide$mean
+GC_length_wide$Post <- GC_length_wide$Post - GC_length_wide$mean
+#saveRDS(GC_length_wide, file = "Blebb_GC_neurite length.rds")
+```
+
+```{r}
+GC_length_long<- pivot_longer(GC_length_wide, cols=c(3:5), names_to = "Series", values_to="Length") %>% as.data.table()
+GC_length_long$Series <- factor(GC_length_long$Series, levels=unique(GC_length_long$Series))
+
+
+GC_length_long_cell<- GC_length_long[Series =="Pre"] %>% 
+ group_by(cell) %>% 
+  rstatix::get_summary_stats(Diff) %>% as.data.table()
+
+GC_length_long_cell$Treatment <- "Blebb"
+```
+
+
+```{r message=FALSE, warning=FALSE, fig.width=8}
+library(ggpubr)
+
+my_comparisons <- list( c("Pre", "Act"), c("Pre", "Post"), c("Act", "Post") )
+
+#neurite_length_long<- neurite_length_long%>% subset(neurite_length_long$Series != "Post")
+
+ggplot(GC_length_long, aes(x=Series, y=Length, fill=Series)) + 
+  geom_violin(trim=FALSE, 
+              kernel ="gaussian", 
+              adjust=1.3)+
+  geom_boxplot(width=0.25, fill="white")  +
+  geom_point(aes(fill=Series,group=roi), position = position_dodge(0.2))+
+  geom_line(aes(group=roi), position = position_dodge(0.2)) +
+  stat_compare_means(comparisons = my_comparisons, paired=T, method="wilcox.test")+
+  scale_y_continuous( expand = c(0, 0), limits = c(-6, 10), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+# plotly::ggplotly(p)
+```
+
+```{r}
+ggsave(
+  "PaRac1_Blebb_soma_Pre_Act_post.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+```{r, message = FALSE, warning=FALSE, fig.width=8}
+
+
+my_comparisons <- list( c("Pre", "Act") )
+
+GC_length_long %>% subset(GC_length_long$Series != "Post") %>% 
+
+ggplot(aes(x=Series, y=Length, fill=Series)) + 
+  geom_violin(trim=FALSE, 
+              kernel ="gaussian", 
+              adjust=1)+
+  geom_boxplot(width=0.25, fill="white")  +
+  geom_point(aes(fill=Series,group=roi), position = position_dodge(0.2))+
+  geom_line(aes(group=roi), position = position_dodge(0.2)) +
+  stat_compare_means(comparisons = my_comparisons, paired=T, method="wilcox.test")+
+  scale_y_continuous( expand = c(0, 0), limits = c(-6, 8), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+# plotly::ggplotly(p)
+```
+```{r}
+ggsave(
+  "PaRac1_Blebb_soma_Pre_Act.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+# get the control data (original PA-Rac1 in WT soma)
+```{r}
+soma_length_wide_Ctl <- read_rds(file="Control_soma_neuriteLength.rds") %>
+soma_length_wide_Ctl$Treatment <- "Control"
+soma_length_wide_Ctl$Diff<- soma_length_wide_Ctl$Act - soma_length_wide_Ctl$Pre
+
+
+soma_length_wide_Ctl <- soma_length_wide_Ctl %>% as.data.table()
+
+soma_control <- soma_length_wide_Ctl[ ,.(roi, Treatment, Diff)]
+soma_Blebb <- GC_length_long_cell[ ,.(cell, mean, Treatment)]
+names(soma_Blebb) <- c("roi", "Diff", "Treatment")
+
+
+length_compare_wide <-  rbind(soma_control, soma_Blebb)
+
+
+#length_compare_wide$Diff_2 <-  length_compare_wide$Post-length_compare_wide$Pre
+#length_compare_wide$Diff_3 <-  length_compare_wide$Post-length_compare_wide$Act
+
+#length_compare_wide <-  length_compare_wide  %>% subset(length_compare_wide$Diff_2 > -2)
+length_compare_wide$Treatment %>% table()
+
+```
+
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+my_comparisons <- list( c("Control", "Blebb") )
+pj <- position_jitter(seed = 1, width = .05, height = 0)
+
+length_compare_wide %>% 
+  
+ggplot ( aes(x=Treatment, y=Diff, fill=Treatment) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, outlier.colour = NA, fill="white")+ 
+  
+  
+#geom_jitter(aes(), shape=16, position=position_jitter(0.1))+ #aes(color = batch)
+   geom_point(aes(fill=Treatment), position = pj)+ 
+  
+# geom_line(aes(group=cell), position = pj, alpha = 0.2) +
+# geom_path(aes(group = cell),alpha = 0.2)+
+    
+scale_y_continuous(expand = c(0, 0), limits = c(-25, 10), breaks = scales::pretty_breaks(n = 5))+ 
+stat_compare_means(comparisons = my_comparisons, paired=F, method="t.test") +
+
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold", angle = 0)) #for centering the text 
+```
+```{r}
+ggsave(
+  "PaRac1_BlebbvsCtl_soma.pdf",
+  width=8, height=12, 
+  plot = last_plot(),
+  device = "pdf")
+```
+
+# Convert to categorical value and apply regression analysis
+```{r}
+length_compare_wide <- length_compare_wide %>% as.data.table()
+
+length_compare_wide$Growth<- "Retraction"
+length_compare_wide[Act > 0,  ]$Growth<- "Extension"
+
+df_wide <- length_compare_wide[,. (Growth, Treatment)] %>% 
+  table() %>% 
+  as.data.frame() %>% 
+  pivot_wider(id_cols = "Treatment", names_from = "Growth", values_from = "Freq")
+
+
+
+example.glm = glm(cbind(Extension, Retraction) ~ Treatment, 
+                  data = df_wide,  
+                  family = binomial())
+  
+
+emmeans::lsmeans(example.glm, pairwise ~ Treatment)
+
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "neurite_length.RData",  sep = "/")
+save.image(file=saved_path)
+
+```

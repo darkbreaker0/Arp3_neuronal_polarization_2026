@@ -1,0 +1,1819 @@
+---
+title: "Canonical template: pooled-replicate neurite-actin CCF"
+output: html_notebook
+---
+
+<!--
+================================================================================
+  CANONICAL TEMPLATE - DO NOT RENDER DIRECTLY
+================================================================================
+  This Rmd is INCLUDED by 2 thin wrappers (one per panel target):
+
+    figures/EDFig01_coordination/edfig01be_2d_culture_neurite_freq_and_xcorr_pooled.Rmd
+       -> ED Fig 1b (2D-culture pooled-replicate CCF, N = 101 from 4 exps)
+
+    figures/EDFig02_actin/edfig02c_neurite_actin_xcorr_pooled_sd.Rmd
+       -> ED Fig 2c (pooled-replicate CCF with SD envelope; same algorithm
+          as Fig 2e but with replicate-pooling aggregation)
+
+  Each wrapper sets nothing (no params needed): the analysis is identical;
+  Path_1 resolves to the wrapper's own directory, picking up the LOCAL
+  per-cell CSV inputs.  So wrapper placement = data selection.
+
+  Include via:
+      ```{r child = "../../templates/pooled_replicate_ccf.Rmd"}
+      ```
+
+================================================================================
+  REPO STATUS
+================================================================================
+  Extracted: 2026-05-12 from 2 sibling wrappers whose R bodies were
+             byte-identical (2305 lines each, 0 diff). Wrapper differences
+             were entirely in the HTML-comment header annotations.
+  Net reduction: 4685 lines -> ~2380 lines (~49% saved).
+  Essentiality: Template (canonical parameterized analysis).
+================================================================================
+-->
+
+<!--
+================================================================================
+  GUIDED TOUR — read this before diving into the chunks below
+================================================================================
+  This 2300-line template is the "pooled-replicate CCF" pipeline shared by:
+
+    figures/EDFig01_coordination/edfig01be_2d_culture_neurite_freq_and_xcorr_pooled.Rmd
+       (-> ED Fig 1b, 2D culture cohort, N = 101 neurons / 4 experiments)
+    figures/EDFig02_actin/edfig02c_neurite_actin_xcorr_pooled_sd.Rmd
+       (-> ED Fig 2c, mean +/- SD envelope, N = 135 neurons / 5 experiments)
+
+  Both wrappers run the IDENTICAL code on different data folders. The
+  wrapper's working directory selects the data via `Path_1 = dirname(...)`.
+
+  -------- WHAT "POOLED REPLICATE" MEANS HERE --------
+  The key analytical difference vs. the per-cell CCF templates is the
+  aggregation: this version groups individual neurons by experimental
+  replicate (one experiment = one day of imaging), computes per-replicate
+  mean CCF curves, and then plots mean +/- SD across replicates. So the
+  uncertainty band reflects between-experiment variation, not within-cell.
+
+  -------- PIPELINE PHASES --------
+    PHASE A — SETUP (chunks 1-3)
+        Library imports + env restore. Note: this template uses
+        `df_list_comb.RData` (the "_comb" suffix marks replicate-combined
+        data; the per-cell template uses `df_list.RData`).
+
+    PHASE B — DATA INGEST (chunks 4-7)
+        Read per-cell CSVs from sub-folders. Group by experiment day
+        (encoded in the parent folder name).
+
+    PHASE C — EXTENSION/RETRACTION PHASE DETECTION (similar to fig04o)
+        Convert lengths to derivatives, identify extension/retraction
+        events with threshold-based peak detection.
+
+    PHASE D — POPULATION + PER-REPLICATE SUMMARIES
+        Compute per-experiment summary curves before pooling.
+
+    PHASE E — CCF + MEAN-RIBBON PLOT (this is the published-panel output)
+        Pairwise CCFs across neurites within each cell; then average over
+        cells WITHIN each experiment; then mean +/- SD across experiments.
+
+    PHASE F — ADDITIONAL DIAGNOSTIC PLOTS (peakPick, changepoint, etc.)
+        Exploratory analyses left in for audit; not in the headline figure.
+
+    PHASE G — TEARDOWN
+        Save env to df_list_comb.RData for the next render.
+
+  -------- WRAPPER PARAMETERS --------
+  NONE. The 2 wrappers are byte-identical except for their header comments.
+  Data selection happens via wrapper directory (`Path_1`).
+
+  -------- COMPANION FILE --------
+  The per-cell variant of this analysis is at
+  `figures/Fig02_actin_wave/fig02e_neurite_actin_xcorr_culture.Rmd`.
+  Both implement the same CCF algorithm; the only difference is the
+  aggregation step (per-cell vs per-replicate).
+================================================================================
+-->
+
+## Step 1: Load libraries
+
+Same package superset as the per-cell CCF template plus `ggsignif` for
+significance-bracket annotations and `gdata` for `cbindX` (NA-tolerant
+column-binding).
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)        # findpeaks, gradient
+library(peakPick)      # alternative peak detection
+library(quantmod)      # findPeaks/findValleys aliases
+library(tidyverse)     # dplyr/tidyr/purrr/ggplot
+library(magrittr)
+library(ggplot2)
+library(ggfortify)     # autoplot.ts
+library(forecast)      # moving-average smoothing
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis)
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+library(rstatix)       # get_summary_stats, identify_outliers
+library(gdata)         # cbindX — unequal-row column-bind
+library(ggpubr)        # stat_compare_means
+library(ggsignif)      # significance brackets for ggplot
+```
+
+## Step 2: Load saved environment (.RData) — fast path
+
+Note: this template uses `df_list_comb.RData` rather than the per-cell
+template's `df_list.RData`. The `_comb` suffix marks "combined replicates"
+— the original G:\ source folder was named with a `_comb` suffix on the
+filename to distinguish it from the per-cell variant.
+
+```{r}
+Path_1     <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list_comb.RData",  sep = "/")
+load(file = saved_path)
+
+```
+
+# Neurite length
+# Data 180123 and 181018
+```{r}
+
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+subfolder_list  <- subfolder_list [ grepl("Kymo", subfolder_list) ]
+subfolder_list  <- subfolder_list [ grepl("180123|181018", subfolder_list) ]
+
+length_list1<- list()
+freq <- 0.5 # set frequency (1/interval)
+pixel <- 0.1082410 # set pixel size
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list))  
+{
+  
+ csv_list <- list.files(subfolder_list [n],pattern = "^Result(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  df <- do.call("cbind", lapply(csv_list, read.csv, header = TRUE))
+  df <-df[, grep("Length|Tip",  colnames(df)), drop = FALSE] %>% as.data.table()
+  df <- mapply(`*`,df, pixel)
+  
+  colnames(df)<- paste("Length", seq( from = 1, to = ncol(df) ),  sep = ".")
+  
+  length_list1[[n]] <-df
+
+}
+
+subfolder_name_list <- subfolder_list %>% fs::path_file()
+
+names(length_list1) <- gsub("Kymo_", "", subfolder_name_list)
+```
+
+# Data DVcore
+```{r}
+
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+subfolder_list  <- subfolder_list [ grepl("Kymo", subfolder_list) ]
+subfolder_list  <- subfolder_list [ grepl("DVcore", subfolder_list) ]
+
+length_list_DVcore<- list()
+freq <- 0.5 # set frequency (1/interval)
+pixel <- 0.1609000 # set pixel size 
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list))  
+{
+  
+ csv_list <- list.files(subfolder_list [n],pattern = "^Result(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  df <- do.call("cbind", lapply(csv_list, read.csv, header = TRUE))
+  df <-df[, grep("Length|Tip",  colnames(df)), drop = FALSE] %>% as.data.table()
+  df <- mapply(`*`,df, pixel)
+  
+  colnames(df)<- paste("Length", seq( from = 1, to = ncol(df) ),  sep = ".")
+  
+  length_list_DVcore[[n]] <-df
+
+}
+
+subfolder_name_list <- subfolder_list %>% fs::path_file()
+
+names(length_list_DVcore) <- gsub("Kymo_", "", subfolder_name_list)
+
+```
+
+# Data 180129(DMSO)
+```{r}
+
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+subfolder_list  <- subfolder_list [ grepl("Kymo", subfolder_list) ]
+subfolder_list  <- subfolder_list [ grepl("180129", subfolder_list) ]
+
+length_list_180129<- list()
+freq <- 0.5 # set frequency (1/interval)
+pixel <- 0.0648000 # set pixel size 
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list))  
+{
+  
+ csv_list <- list.files(subfolder_list [n],pattern = "^Result(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  df <- do.call("cbind", lapply(csv_list, read.csv, header = TRUE))
+  df <-df[, grep("Length|Tip",  colnames(df)), drop = FALSE] %>% as.data.table()
+  df <- mapply(`*`,df, pixel)
+  
+  colnames(df)<- paste("Length", seq( from = 1, to = ncol(df) ),  sep = ".")
+  
+  length_list_180129[[n]] <-df
+
+}
+
+subfolder_name_list <- subfolder_list %>% fs::path_file()
+
+names(length_list_180129) <- gsub("Kymo_", "", subfolder_name_list)
+```
+
+# Data 180207
+```{r}
+
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+subfolder_list  <- subfolder_list [ grepl("Kymo", subfolder_list) ]
+subfolder_list  <- subfolder_list [ grepl("180207", subfolder_list) ]
+subfolder_list  <- subfolder_list [ grepl("anaylzed_ori", subfolder_list) ]
+
+length_list_180207<- list()
+freq <- 0.5 # set frequency (1/interval)
+pixel <- 0.0648000 # set pixel size 0.1082410
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list))  
+{
+  
+ csv_list <- list.files(subfolder_list [n],pattern = "^Result(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  df <- do.call("cbind", lapply(csv_list, read.csv, header = TRUE))
+  df <-df[, grep("Length|Tip",  colnames(df)), drop = FALSE] %>% as.data.table()
+  df <- mapply(`*`,df, pixel)
+  
+  colnames(df)<- paste("Length", seq( from = 1, to = ncol(df)),  sep = ".")
+  
+  length_list_180207[[n]] <-df
+
+}
+
+subfolder_name_list <- subfolder_list %>% fs::path_file()
+
+names(length_list_180207) <- gsub("Kymo_", "", subfolder_name_list)
+```
+
+# Data 180207_binned
+```{r}
+
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+subfolder_list  <- subfolder_list [ grepl("Kymo", subfolder_list) ]
+subfolder_list  <- subfolder_list [ grepl("180207", subfolder_list) ]
+subfolder_list  <- subfolder_list [ grepl("binned", subfolder_list) ]
+
+length_list_180207_scaled<- list()
+freq <- 0.5 # set frequency (1/interval)
+pixel <- 0.1296000 # set pixel size 0.1082410
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list))  
+{
+  
+ csv_list <- list.files(subfolder_list [n],pattern = "^Result(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  df <- do.call("cbind", lapply(csv_list, read.csv, header = TRUE))
+  df <-df[, grep("Length|Tip",  colnames(df)), drop = FALSE] %>% as.data.table()
+  df <- mapply(`*`,df, pixel)
+  
+  colnames(df)<- paste("Length", seq( from = 1, to = ncol(df)),  sep = ".")
+  
+  length_list_180207_scaled[[n]] <-df
+
+}
+
+subfolder_name_list <- subfolder_list %>% fs::path_file()
+
+names(length_list_180207_scaled) <- gsub("Kymo_", "", subfolder_name_list)
+```
+
+# Data Max_170905
+```{r}
+
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+subfolder_list  <- subfolder_list [ grepl("Kymo", subfolder_list) ]
+subfolder_list  <- subfolder_list [ grepl("Max_170905", subfolder_list) ]
+
+length_list_Max_170905<- list()
+freq <- 0.5 # set frequency (1/interval)
+pixel <- 0.1609000 # set pixel size 0.1082410
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list))  
+{
+  
+ csv_list <- list.files(subfolder_list [n],pattern = "^Result(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  df <- do.call("cbind", lapply(csv_list, read.csv, header = TRUE))
+  df <-df[, grep("Length|Tip",  colnames(df)), drop = FALSE] %>% as.data.table()
+  df <- mapply(`*`,df, pixel)
+  
+  colnames(df)<- paste("Length", seq( from = 1, to = ncol(df)),  sep = ".")
+  
+  length_list_Max_170905[[n]] <-df
+
+}
+
+subfolder_name_list <- subfolder_list %>% fs::path_file()
+
+names(length_list_Max_170905) <- gsub("Kymo_", "", subfolder_name_list)
+```
+
+# Data 180205_4min
+```{r}
+
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+subfolder_list  <- subfolder_list [ grepl("180205_4min/kymo/Kymo", subfolder_list) ]
+
+length_list_180205_4min<- list()
+freq <- 0.25 # set frequency (1/interval)
+pixel <- 0.0648 # set pixel size
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list))  
+{
+  
+ csv_list <- list.files(subfolder_list [n],pattern = "^Result(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  df <- do.call("cbind", lapply(csv_list, read.csv, header = TRUE))
+  df <-df[, grep("Tip.point",  colnames(df)), drop = FALSE] %>% as.data.table()
+  df <- mapply(`*`,df, pixel)  %>% as.data.frame()
+
+  colnames(df)<- paste("Length", seq( from = 1, to = dim(df)[2] ),  sep = ".")
+  
+  # Interpolation of time series data to match temporal resoultion
+  df$time<- (0:(nrow(df)-1)*4)
+  newTime <- seq(0,960, by=2) %>% as.data.frame()
+  names(newTime) <- "time"
+  # Replace NA by Interpolation
+  df <- left_join(x=newTime,y=df,by=c("time")) %>% zoo::na.approx() %>% as.data.table()
+  
+  length_list_180205_4min[[n]] <- df[, -1] 
+
+}
+
+subfolder_name_list <- subfolder_list %>% fs::path_file()
+names(length_list_180205_4min) <- gsub("Kymo_", "", subfolder_name_list)
+```
+
+```{r}
+length_list <- c(length_list1, length_list_DVcore, length_list_180129, length_list_180207, length_list_180207_scaled, length_list_Max_170905, length_list_180205_4min)
+
+#subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+#subfolder_list <- subfolder_list [ grepl("Kymo", subfolder_list) ]
+#subfolder_list <- subfolder_list %>% fs::path_file()
+#subfolder_list <- gsub("Kymo_", "", subfolder_list)
+
+length_list <- length_list[names(Tip_actin_list)]
+
+names(length_list)<- gsub(" ", ".", names(length_list))
+```
+
+```{r}
+for (n in 1:length(length_list)){
+  
+  df <- length_list[[n]]
+  
+  row_odd <- seq_len(nrow(df)) %% 2  
+  length_list[[n]] <-df[row_odd == 1, ]     
+  
+}
+
+```
+
+# Tip actin intensity  (100 pixels) 
+```{r}
+
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+subfolder_list  <- subfolder_list [ grepl("Kymo", subfolder_list) ]
+
+Tip_actin_list<- list()
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list ))  
+{
+ 
+ csv_list <- list.files(subfolder_list [n],pattern = "^Result(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  df <- do.call("cbind", lapply(csv_list, read.csv, header = TRUE))
+  
+  df <-df[, grep("Integerated.intensity",  colnames(df)), drop = FALSE] %>% as.data.table() 
+  
+  colnames(df)<- paste("Tip_actin", seq( from = 1, to =  ncol(df) ),  sep = ".")
+  
+  Tip_actin_list[[n]]<-  mapply(`*`,df, 1/10000)
+ 
+}
+
+subfolder_name_list <- subfolder_list %>% fs::path_file()
+
+names(Tip_actin_list) <- gsub("Kymo_", "", subfolder_name_list)
+
+names(Tip_actin_list)<- gsub(" ", ".", names(Tip_actin_list))
+
+```
+
+```{r}
+
+list_180205_4min<- Tip_actin_list[59:116]
+
+for (n in 1:length(list_180205_4min))  
+{
+  df <- list_180205_4min[[n]] %>% as.data.frame()
+
+  df$time<- (0:(nrow(df)-1)*4)
+ newTime <- seq(0,960, by=2) %>% as.data.frame()
+  names(newTime) <- "time"
+  df <- left_join(x=newTime,y=df,by=c("time")) %>% zoo::na.approx() %>% as.data.table()
+  
+  list_180205_4min[[n]] <- df[, -1] 
+
+}
+
+Tip_actin_list[59:116]<- list_180205_4min
+```
+
+```{r}
+
+for (n in 1:length(Tip_actin_list)){
+  
+  df <- Tip_actin_list[[n]]
+  
+  row_odd <- seq_len(nrow(df)) %% 2  
+  Tip_actin_list[[n]] <-df[row_odd == 1, ]     
+  
+}
+
+```
+
+# Actin intensity at neurite shaft (neurite length - 100 pixels)
+```{r}
+
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+subfolder_list  <- subfolder_list [ grepl("Kymo", subfolder_list) ]
+
+Neurite_actin_list<- list()
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list ))  
+{
+  csv_list <- list.files(subfolder_list [n],pattern = "^Actin_neurite(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  df <- do.call("cbind", lapply(csv_list, read.csv, header = TRUE))
+  
+  df <-df[, grep("Integerated.intensity",  colnames(df)), drop = FALSE] %>% as.data.table()
+  
+  colnames(df)<- paste("Neurite_actin", seq( from = 1, to =  ncol(df) ),  sep = ".")
+  
+  Neurite_actin_list[[n]]<- mapply(`*`,df, 1/10000)
+ 
+}
+
+names(Neurite_actin_list) <- names(Tip_actin_list)
+names(Neurite_actin_list)<- gsub(" ", ".", names(Neurite_actin_list))
+```
+
+```{r}
+
+list_180205_4min<- Neurite_actin_list[59:116]
+
+for (n in 1:length(list_180205_4min))  
+{
+  df <- list_180205_4min[[n]] %>% as.data.frame()
+
+  df$time<- (0:(nrow(df)-1)*4)
+ newTime <- seq(0,960, by=2) %>% as.data.frame()
+  names(newTime) <- "time"
+  df <- left_join(x=newTime,y=df,by=c("time")) %>% zoo::na.approx() %>% as.data.table()
+  
+  list_180205_4min[[n]] <- df[, -1] 
+
+}
+
+Neurite_actin_list[59:116]<- list_180205_4min
+```
+
+```{r}
+
+for (n in 1:length(Neurite_actin_list)){
+  
+  df <- Neurite_actin_list[[n]]
+  
+  row_odd <- seq_len(nrow(df)) %% 2  
+  Neurite_actin_list[[n]] <-df[row_odd == 1, ]     
+  
+}
+
+```
+
+# Actin  density of the whole neurite (neurite shaft)/neurite length
+```{r}
+
+Density_actin_list<- list()
+
+for (n in 1:length(length_list))  {
+  
+  df <- (Neurite_actin_list[[n]])/(length_list[[n]])
+  colnames(df)<- paste("density_actin", seq( from = 1, to = ncol(df)),  sep = ".")
+  df[sapply(df, is.infinite)] <- NA
+  Density_actin_list[[n]]<- df
+  
+}
+
+names(Density_actin_list) <- names(Neurite_actin_list) 
+names(Density_actin_list)<- gsub(" ", ".", names(Density_actin_list))
+
+```
+
+```{r}
+
+for (n in 1:length(Density_actin_list)){
+  
+  df <- Density_actin_list[[n]]
+  
+  row_odd <- seq_len(nrow(df)) %% 2  
+  Density_actin_list[[n]] <-df[row_odd == 1, ]     
+  
+}
+
+```
+
+# Soma actin (missing soma of Data 180129(DMSO))
+```{r}
+
+library("gdata")
+
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+
+# read csv files in the subfolders of subfolder list
+ csv_soma_list <- list.files(Path_1, pattern = "^soma(.*)csv$", 
+                     recursive = T,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+ 
+soma_Actin_df <- do.call("cbindX", lapply(csv_soma_list , read.csv, header = TRUE))
+soma_Actin_df <- soma_Actin_df[ colnames(soma_Actin_df)!="X"] 
+
+names(soma_Actin_df)[114:146] <- names(Tip_actin_list)[141:173]
+names(soma_Actin_df)[4]<- "Long_LifeactmScar_03_03_R3D.dv_2"
+
+soma_Actin_df <- soma_Actin_df[gsub(" ", ".", names(Tip_actin_list)[-c(32:58)])] #sort column by the order of Tip_actin list
+
+```
+
+```{r}
+
+df <- soma_Actin_df[32:89]
+
+df$time<- (0:(nrow(df)-1)*4)
+newTime <- seq(0,960, by=2) %>% as.data.frame()
+names(newTime) <- "time"
+df <- left_join(x=newTime,y=df,by=c("time")) %>% zoo::na.approx() %>% as.data.table()
+  
+soma_Actin_df[32:89]<- df[, -1]
+
+soma_Actin_df <- soma_Actin_df[gsub(" ", ".", names(Tip_actin_list)[-c(32:58)])] #sort column by the order of Tip_actin list
+```
+
+```{r}
+
+row_odd <- seq_len(nrow(df)) %% 2  
+soma_Actin_df <-soma_Actin_df[row_odd == 1, ]     
+
+```
+
+```{r}
+all_list<-list(Length=length_list, Tip_actin=Tip_actin_list, Neurite_actin=Neurite_actin_list, Density_actin = Density_actin_list)
+```
+
+# Create stationary (differential) curve of all measurements
+```{r}
+
+freq <- 0.25 # set frequency (1/interval)
+
+all_sta_list <- list()
+
+for (m in 1:length(all_list)) {
+  
+  selected_list <- all_list[[m]]
+  sta_list <- list()
+  
+  for (n in 1:length(selected_list))  {
+  
+  sta <- selected_list[[n]] %>% forecast::ma(5)                           # smoothing #1
+      colnames(sta)<-colnames(selected_list[[n]])
+  sta_list[[n]]<- sta %>% MTS::diffM(d=1) %>%  ts(frequency = freq, start = c(0, 1))
+
+  }
+
+names(sta_list)<-names(length_list)
+  
+all_sta_list[[m]]<- sta_list
+  
+}
+
+names(all_sta_list)<- names(all_list )
+
+#  stationary (differential) curve of soma actin
+soma_sta<- soma_Actin_df   %>% forecast::ma(5) %>% MTS::diffM(d=1) %>% forecast::ma(5) %>% ts(frequency = freq, start = c(0, 1))
+colnames(soma_sta)<-names(soma_Actin_df )
+
+```
+
+# check the curve of created stationary data
+```{r}
+selected_list <- all_sta_list$Length$Kymo_Long_LifeactmScar_02_037_R3D_S2_good.dv
+
+selected_list <- soma_sta[, 57]  
+
+ selected_list %>%  autoplot( ts.colour = 'black', size = 0.5) +
+ 
+   geom_hline(yintercept=0, linetype="dashed", color = "blue")+
+   theme_ipsum(grid = F, ticks = T) + 
+   theme_linedraw()+
+    scale_fill_viridis(discrete = T) + 
+  scale_y_continuous(  breaks = scales::pretty_breaks(n = 7))+
+  scale_x_continuous(expand = c(0, 0), limits = c(0, NA), breaks = scales::pretty_breaks(n = 8)) + 
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold"),
+        legend.position = "none")  #for centering the text
+```
+
+# Prepare data for cross-correlation analysis at individual neurite level
+```{r}
+
+library("data.table")
+
+all_sta_cell_list <- list()
+
+for (k in 1:length(length_list)){
+  
+neurite_list <- list()
+
+dt1 <- all_sta_list[[1]][[k]] %>% as.data.table()
+NC <- dt1 %>% ncol()
+
+    for (n in 1:NC){
+      
+     dt <- dt1[,..n]
+     
+          for (m in 2:4){
+            
+            dt2 <- all_sta_list[[m]][[k]] %>% as.data.table()
+            dt<- cbind(dt, dt2[, ..n])
+              
+          }
+    
+    neurite_list[[n]] <- dt
+    
+    }
+
+names(neurite_list)<- paste("Neurite_", 1:NC, sep = "")
+
+all_sta_cell_list[[k]]<- neurite_list
+
+}
+
+names(all_sta_cell_list) <- names(all_sta_list[[1]])
+
+```
+
+# cross-correlation with neurite length at individual neurite level
+<!--
+================================================================================
+  HEADLINE CCF ANALYSIS — this is where ED Fig 1b / ED Fig 2c source data
+  is computed.
+================================================================================
+  For each cell, we pair neurite 1 vs neurite N (for N = 2, 3, 4) and
+  compute the cross-correlation function. The lag axis spans -75..+75
+  imaging frames (lag.max=75). At each lag, the CCF measures the linear
+  correlation between the two neurites' length-derivative time series.
+
+  -------- THE PIPELINE --------
+  1. selected_list   <- multivariate per-cell tables (each is a data.table
+                        with one column per neurite, NA-padded)
+  2. unlist(..., recursive=FALSE) flattens nested replicates into one big
+                        cell list.
+  3. For each pair-combination (1-vs-2, 1-vs-3, 1-vs-4), compute the CCF
+     for every cell. The first cell starts the result list, then subsequent
+     cells get cbindX'd alongside.
+  4. The next chunks (down to ~line 1150) aggregate these per-cell CCF
+     curves by experiment and plot mean +/- SD across experiments.
+
+  -------- WHY na.action = na.pass --------
+  Some cells contribute time-series shorter than the max length; those rows
+  end up as NA in the cbindX'd combined table. `na.pass` tells ccf() to
+  preserve NA-aware computation rather than fail.
+================================================================================
+-->
+
+```{r}
+selected_ccf <- ccf_neurite_length_list$Tip_actin %>% as.data.table()
+selected_ccf$lag <- selected_ccf$lag/freq
+
+stacked_ccf_mat <- selected_ccf %>% gather(Neurite, ccf, -lag) # select which CCF of measurements to show
+df_summary <- stacked_ccf_mat %>% group_by(lag) %>% rstatix::get_summary_stats(ccf)
+```
+
+```{r}
+row_odd <- seq_len(nrow(df_summary)) %% 2              # Create row indicator
+df_summary  <- df_summary [row_odd == 1, ]  
+
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+ggplot(df_summary, aes(x=lag, y=mean)) +
+   geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="lightgrey")+
+   geom_line(size=1, alpha=1) +
+   theme_ipsum(grid = F, ticks = T)+ 
+   geom_vline(xintercept=0, linetype="dashed", color = "black")+
+  geom_hline(yintercept=0, linetype="dashed", color = "black")+
+  
+   stat_peaks(colour = "red", ignore_threshold = 0.9) +
+ stat_peaks(geom = "text", colour = "red", vjust = -0.5, ignore_threshold = 0.9) +
+  stat_valleys(colour = "blue", ignore_threshold = 0.8)+
+ stat_valleys(geom = "text", colour = "blue", angle = 0, vjust = 1.5, hjust = 1, ignore_threshold = 0.8)+
+
+   scale_y_continuous( breaks = scales::pretty_breaks(n = 6))+
+   scale_x_continuous(expand = c(0, 0),  breaks = scales::pretty_breaks(n = 8), limits = c(-100,100)) +theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+```{r}
+ggsave(
+  "Tipactin_individual.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list_comb.RData",  sep = "/")
+save.image(saved_path)
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+fig_A <- stacked_ccf_mat %>% 
+ggplot(aes(x=lag, y=ccf)) + geom_point(alpha=0.3, size=0.5) +
+   geom_line(aes(color=Neurite), size=0.8)+ theme(legend.position = "none") 
+
+fig_B <- stacked_ccf_mat %>% 
+  ggplot(aes(x = lag, y = ccf, fill=Neurite)) +
+    geom_area(alpha=1 , size=.05, colour="white") +
+    #scale_fill_viridis(discrete = T) +  
+  #scale_fill_brewer(palette = "Set2") +
+    theme_ipsum(grid = F, ticks = T)+ 
+    geom_vline(xintercept=0, linetype="dashed", color = "black")+
+    scale_y_continuous( breaks = scales::pretty_breaks(n = 5))+
+    scale_x_continuous(expand = c(0, 0),  breaks = scales::pretty_breaks(n = 8)) + 
+    theme_linedraw()+
+    theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+
+fig_C <-ggplot(df_summary, aes(x=Time, y=mean)) +
+   geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="lightblue")+
+   geom_line(size=1, alpha=1) +
+   theme_ipsum(grid = F, ticks = T)+ 
+   geom_vline(xintercept=0, linetype="dashed", color = "black")+
+   scale_y_continuous( breaks = scales::pretty_breaks(n = 6))+
+   scale_x_continuous(expand = c(0, 0),  breaks = scales::pretty_breaks(n = 8)) +theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+
+ggpubr::ggarrange(fig_A,fig_B,fig_C,
+                  labels = LETTERS[1:3],
+                  ncol = 2, nrow = 2,  legend="none")
+
+```
+
+```{r}
+ggsave(
+  "avg_2.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+## We convert the multiple times series data to appropriate dataframe for stack area plot
+```{r}
+library("data.table")
+selected_list <-all_sta_list$Length
+stacked_avg_list <- list()
+
+for (m in 1:length(selected_list)) {
+
+  df <- selected_list[[m]] %>%  forecast::ma(5) %>% as.data.table()
+  df$Time<- (0:(nrow(df)-1))/freq
+  stacked_avg_list [[m]] <- df %>%  gather(neurite, Length, -Time)
+
+}
+
+names(stacked_avg_list)<- names(length_list)
+```
+
+```{r warning=FALSE,  message = FALSE, warning=FALSE, fig.width=10}
+stacked_avg_list$Longterm_LifeactmCar_LifeactmScar_02_08_R3D.dv %>% 
+  ggplot(aes(x = Time, y = Length, fill = neurite)) +
+    geom_area(alpha=1 ) +
+  theme_linedraw()+
+    scale_fill_viridis(discrete = T) + 
+  scale_y_continuous(  breaks = scales::pretty_breaks(n = 7))+
+  scale_x_continuous(expand = c(0, 0), limits = c(0, NA), breaks = scales::pretty_breaks(n = 8)) + 
+
+  # scale_fill_brewer(palette = "Set2") +
+   # theme_ipsum(grid = F, ticks = T) +
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none", 
+        axis.text=element_text(size=12)) #for centering the text
+```
+
+```{r}
+ggsave(
+  "avg_2.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+## We smoothen the stationary profiles first, separete outrgwoth and retraction events, and sum the changes of all neurites. (Smoothening -> separate -> sum)
+```{r warning=FALSE}
+
+# Smoothen the stationary (diff) profiles and optionally filter out small length change with threshold
+
+selected_list <- all_sta_list$Length
+
+mts_stationary_pos_list <- list()
+mts_stationary_neg_list <- list()
+thres= 0.0 # change threshold here
+
+# Positive peaks only (outgrowth event)
+for (m in 1:length(selected_list)) {
+  
+  length_mat<- selected_list[[m]]
+  
+  length_mat_avg<- length_mat %>% forecast::ma(5) %>%  as.data.frame()# Average smoothening
+  colnames(length_mat_avg)<-colnames(length_mat)
+
+  nCol<- ncol(length_mat_avg)
+    for (n in 1:nCol){
+      length_mat_avg[, n][length_mat_avg[ , colnames(length_mat_avg)[n]] < thres] <- 0 
+    }
+  
+  length_mat_avg$sum <- length_mat_avg  %>% rowSums()  # We sum up the extent of outgrowth at each time point
+  mts_stationary_pos_list[[m]] <- length_mat_avg %>% ts(frequency = freq, start = c(0, 1)) 
+
+}
+
+names(mts_stationary_pos_list)<- names(selected_list)
+
+# Negative peaks only (retraction event)
+for (m in 1:length(selected_list)) {
+ 
+  length_mat<- selected_list[[m]]
+  length_mat_avg<- length_mat %>% forecast::ma(5) %>%  as.data.frame()# Average smoothening
+  colnames(length_mat_avg)<-colnames(length_mat)
+  
+  nCol<- ncol(length_mat_avg)
+    for (n in 1:nCol){
+      length_mat_avg[, n][length_mat_avg[ , colnames(length_mat_avg)[n]] > - thres] <- 0 
+    }
+  
+  length_mat_avg$sum <- length_mat_avg  %>% rowSums()  # We sum up the extent of retraction at each time point
+  mts_stationary_neg_list[[m]] <- length_mat_avg %>% ts(frequency = freq, start = c(0, 1)) 
+}
+
+names(mts_stationary_neg_list)<- names(selected_list)
+
+```
+
+# We plot the overall outgrowth/retraction level over time
+```{r warning=FALSE,  message = FALSE, warning=FALSE, fig.width=10}
+selected_stationary_pos <- mts_stationary_pos_list$Long_LifeactmScar_02_046_R3D_S2_good.dv[, "sum"]
+selected_stationary_neg <- mts_stationary_neg_list$Long_LifeactmScar_02_046_R3D_S2_good.dv[, "sum"]
+
+ts.union(selected_stationary_pos, selected_stationary_neg) %>%  autoplot() +
+  geom_line(aes(),size=0.25)  +
+   geom_hline(yintercept=0, linetype="dashed", color = "black")+
+   #geom_hline(yintercept=thres, linetype="dashed", color = "blue")+
+   #geom_hline(yintercept=-thres, linetype="dashed", color = "blue")+
+   scale_y_continuous( breaks = scales::pretty_breaks(n = 7))+
+  scale_x_continuous(expand = c(0, 0), limits = c(0, NA), breaks = scales::pretty_breaks(n = 8)) + 
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+```{r}
+ggsave(
+  "avg_2.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+## extension and retraction lifetime (duration)
+```{r}
+thres <- 0.00
+
+ext_ret_list <- list(Ext = mts_stationary_pos_list,  Ret = mts_stationary_neg_list)
+
+ list_duration <- list()  
+
+for (k in 1:length (ext_ret_list )){
+
+ list_1 <- list()    
+ list_k <- ext_ret_list[[k]]
+  
+  for (m in 1:length(list_k)){
+  
+  df <- list_k[[m]] %>% as.data.table()
+  df <- df[, !"sum"] %>% abs() %>% as.data.frame()
+  df<- df[, (colSums(df, na.rm = T) != 0)] %>% as.data.table()
+  
+  list_2 <-  list()
+  
+   for (n in 1: ncol(df)){
+    
+    df2 <- df[ ,..n]
+    df2$time <- seq(0, (nrow(df2)-1), 1)
+    df2 <- df2[complete.cases(df2), ] 
+    
+    df2$inside <- df2[ , 1] > thres
+    df2$start  <- ! c(FALSE, df2$inside[-nrow(df2)]) & df2$inside
+    df2$end    <- df2$inside & ! c(df2$inside[-1], FALSE)  # Not used
+    df2 <- df2[ df2$inside, ]
+    df2$group  <- cumsum(df2$start)  # Number the spells
+    colnames(df2)[1] <- "velocity"
+    
+    df3 <- plyr::ddply( df2, "group", summarize,
+                        start  = min(time),
+                        end    = max(time),
+                        length = length(velocity),
+                        mean   = mean(velocity))
+   
+    df3$neurite <- names(df)[n]
+    
+    # df3$neurite_length <- length_list[[m]][1,n] 
+    list_2[[n]] <- df3
+
+   }
+  
+  df3<- list_2 %>% data.table::rbindlist()
+  df3$cell<- names(ext_ret_list[[k]])[m]
+  df3$growth_polarization <- names(ext_ret_list)[k]
+
+  list_1[[m]] <- df3
+
+  }
+ 
+ duration_df <- list_1 %>% data.table::rbindlist()
+
+ list_duration [[k]] <-  duration_df
+  
+}
+```
+
+```{r}
+duration_df <- list_duration  %>% data.table::rbindlist()
+duration_df$length <- duration_df$length/freq
+duration_df$cell_neurite <- paste(duration_df$cell, duration_df$neurite, sep = "_")
+
+df_summary_duration <-duration_df %>% 
+ group_by(cell, growth_polarization) %>% 
+  rstatix::get_summary_stats(length) %>% as.data.table()
+```
+
+```{r}
+outliers <- df_summary_duration %>% 
+  group_by(growth_polarization) %>% 
+ rstatix::identify_outliers(mean) 
+
+df_summary_duration<- df_summary_duration[! (cell %in% outliers$cell)]
+
+df_summary_duration$growth_polarization %>% table()
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+ my_comparisons <- list(c("Ext", "Ret"))
+pj <- position_jitter(seed = 1, width = .05, height = 0)
+
+df_summary_duration  %>% 
+  
+ggplot ( aes(x=growth_polarization, y=mean, fill=growth_polarization) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, outlier.colour = NA, fill="white")+ 
+  
+#geom_jitter(aes(), shape=16, position=position_jitter(0.1))+ #aes(color = batch)
+   geom_point(aes(fill=growth_polarization, group=cell), position = pj)+ 
+  
+ geom_line(aes(group=cell), position = pj, alpha = 0.2) +
+# geom_path(aes(group = cell),alpha = 0.2)+
+    
+ scale_y_continuous(expand = c(0, 0), limits = c(0, 50), breaks = scales::pretty_breaks(n = 8))+ 
+stat_compare_means(comparisons = my_comparisons, paired=T, method="t.test") +
+
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold", angle = 0)) #for centering the text 
+```
+
+```{r}
+ggsave(
+  "WT_DIV1-2_ext_ret_duration.pdf",
+  width=14, height=7, 
+  plot = last_plot(),
+  device = "pdf")
+```
+
+# extension and retraction velocity
+```{r}
+ext_ret_list_2 <- ext_ret_list
+for (n in 1: length(ext_ret_list)){
+  
+  list_1 <- ext_ret_list[[n]]
+  sample_name <- names(list_1)
+  
+  for (m in 1:length(list_1)){
+  
+    df <- list_1[[m]] %>% as.data.frame()
+    df [ df == 0 ] <- NA # replace zero with NA to avoid zero inflation
+    df1 <- colMeans(df, na.rm = T)  %>% as.data.frame() # calculate the average velocity through the observation window. Or matrixStats::colMedians
+    colnames(df1) <- "mean_vel"
+    df1$median_vel <- df %>% as.matrix() %>% matrixStats::colMedians(na.rm = T)  # calculate the average velocity through the observation window. Or matrixStats::colMedians
+    
+    df1$cond <- "WT"
+    df1$cell <- names(list_1)[m]
+    df1$neurite <- rownames(df1)
+    df1 <- df1 %>% subset (df1$neurite !="sum")
+    
+    df1$growth_polarization <- names(ext_ret_list)[[n]]
+
+   list_1 [[m]] <- df1 %>% as.data.table()
+      
+    }
+  
+  names(list_1)<- sample_name
+
+  ext_ret_list_2 [[n]] <- list_1 %>% reduce(bind_rows)  %>% as.data.frame()
+}
+
+velocity_comb_df <- ext_ret_list_2 %>% reduce(bind_rows)  %>% as.data.table()
+
+# label extension and retraction 
+velocity_comb_df$Growth<- "Extension"
+velocity_comb_df[mean_vel <0]$Growth <- "Retraction"
+
+# convert retraction velocity to positive value
+velocity_comb_df$mean_vel <- velocity_comb_df$mean_vel %>% abs()
+velocity_comb_df$median_vel <- velocity_comb_df$median_vel %>% abs()
+
+velocity_comb_df[mean_vel == "NaN"]$mean_vel <- 0
+velocity_comb_df[median_vel == "NaN"]$median_vel <- 0
+```
+
+# Data points at cell level (axon vs minor neurites; extension vs retraction: not polarized vs polarized)
+
+```{r}
+df_summary_median_vel <-velocity_comb_df %>% 
+  group_by(cell, growth_polarization) %>% 
+  rstatix::get_summary_stats(median_vel) %>% as.data.table()
+
+```
+
+```{r}
+outliers <- df_summary_median_vel %>% 
+  group_by(growth_polarization) %>% 
+ rstatix::identify_outliers(mean) 
+
+df_summary_median_vel <- df_summary_median_vel[! (cell %in% outliers$cell)]
+
+```
+
+```{r}
+df_summary_mean_vel <-velocity_comb_df %>% 
+  group_by(cell, growth_polarization) %>% 
+  rstatix::get_summary_stats(mean_vel) %>% as.data.table()
+
+```
+
+```{r}
+outliers <- df_summary_mean_vel %>% 
+  group_by(growth_polarization) %>% 
+ rstatix::identify_outliers(mean) 
+
+df_summary_mean_vel <- df_summary_mean_vel[! (cell %in% outliers$cell)]
+df_summary_mean_vel$growth_polarization %>% table()
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+ my_comparisons <- list(c("Ext", "Ret"))
+pj <- position_jitter(seed = 1, width = .05, height = 0)
+
+df_summary_mean_vel  %>% 
+  
+ggplot ( aes(x=growth_polarization, y=mean, fill=growth_polarization) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, outlier.colour = NA, fill="white")+ 
+  
+#geom_jitter(aes(), shape=16, position=position_jitter(0.1))+ #aes(color = batch)
+   geom_point(aes(fill=growth_polarization, group=cell), position = pj)+ 
+  
+ geom_line(aes(group=cell), position = pj, alpha = 0.2) +
+# geom_path(aes(group = cell),alpha = 0.2)+
+    
+# scale_y_continuous(expand = c(0, 0), limits = c(0, 1.2), breaks = scales::pretty_breaks(n = 5))+ 
+stat_compare_means(comparisons = my_comparisons, paired=T, method="t.test") +
+
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold", angle = 0)) #for centering the text 
+```
+
+```{r}
+ggsave(
+  "WT_DIV1-2_ext_ret_velocity.pdf",
+  width=14, height=7, 
+  plot = last_plot(),
+  device = "pdf")
+```
+
+# Here we separate the outrgwoth and retraction events first, sum the changes of all neurites, and then do smoothening. (separate -> sum -> smoothening)
+```{r}
+all_sta_PN_list <- list()
+
+for (k in 1:length(all_sta_list)){
+  
+  selected_list <- all_sta_list[[k]]
+  sta_PN_list <- list()
+  
+  thres= 0.0 # change threshold here
+  
+  for (m in 1:length(selected_list)) {
+    
+    DT <- selected_list[[m]] %>% as.data.frame()
+   
+    DT_pos<- DT
+    DT_neg<- DT
+  
+    for (n in 1:dim(DT)[2]){
+        DT_pos[, n][DT_pos[, n] < 0] <- 0 
+        DT_neg[, n][DT_neg[, n] > 0] <- 0 
+    }
+    
+    mat_sum <- data.frame(rowSums(DT_pos), -rowSums(DT_neg))  # add neg sign
+    
+    #mat_sum [, 1][mat_sum [, 1] < thres] <- 0 
+    #mat_sum [, 2][mat_sum [, 2] > -thres] <- 0
+    
+    mat_sum <- mat_sum %>% forecast::ma(5)                    # smoothing #2
+  
+    colnames(mat_sum)<- c(paste("Pos_", names(all_list)[k], sep = ""), paste("Neg_", names(all_list)[k], sep = ""))
+    sta_PN_list[[m]] <- mat_sum
+  
+  }
+  
+  names(sta_PN_list)<-  names(length_list)
+  
+  all_sta_PN_list[[k]]<- sta_PN_list
+  
+}
+
+names(all_sta_PN_list)<- names(all_list )
+
+```
+
+# Combine all stationary PN data of each videos, and add stationary soma data
+```{r}
+comb_sta_list<- list()
+
+for (m in 1:length( all_sta_PN_list[[1]])){
+  
+  mat <- all_sta_PN_list[[1]][m] %>% as.data.frame()
+  colnames(mat)<- sub('.*\\.', '', colnames(mat))
+  
+  for (n in 2:length(all_sta_PN_list)){
+    
+    mat2 <- all_sta_PN_list[[n]][m] %>% as.data.table()
+    colnames(mat2)<- sub('.*\\.', '', colnames(mat2))
+    
+    mat <- data.frame(mat, mat2)
+  }
+  
+   mat3 <- soma_sta[ 1:nrow(mat) ,m] %>% as.data.table() # soma data
+   colnames(mat3)<-"soma_actin"
+   mat <- data.frame(mat, mat3)
+  
+ comb_sta_list[[m]]<- mat %>% ts(frequency = freq, start = c(0, 1)) 
+
+}
+
+names(comb_sta_list)<-  names(length_list)
+```
+
+## Plotting the time series as curves
+```{r message = FALSE, warning=FALSE}
+
+selected_list <- comb_sta_list
+plot_list.1 <- list()
+
+for (n in 1:length(selected_list ))  {
+
+ts <- selected_list[[n]]
+ 
+fig_A <- ts[, c(1,2)] %>%  autoplot() +
+                                     ggtitle (names(all_sta_PN_list)[1]) +
+                                      geom_hline(yintercept=0, linetype="dashed", color = "black") +
+   scale_x_continuous(expand = c(0, 0), limits = c(0, NA), breaks = scales::pretty_breaks(n = 8)) + 
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+ 
+fig_B <- ts[, c(3,4)] %>%  autoplot() +
+                                      ggtitle (names(all_sta_PN_list)[2]) +
+                                        geom_hline(yintercept=0, linetype="dashed", color = "black") +
+   scale_x_continuous(expand = c(0, 0), limits = c(0, NA), breaks = scales::pretty_breaks(n = 8)) + 
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+fig_C <-ts[, 5] %>%  autoplot() +
+                                      ggtitle ("soma_actin") +
+                                        geom_hline(yintercept=0, linetype="dashed", color = "black") +
+                            scale_x_continuous(expand = c(0, 0), limits = c(0, NA), breaks = scales::pretty_breaks(n = 8)) + 
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+plot_list.1[[n]]<- ggpubr::ggarrange(fig_A,fig_B,fig_C,
+                  labels = LETTERS[1:3],
+                  ncol = 2, nrow = 2,  legend="none")
+
+}
+
+names(plot_list.1)<- names(length_list)
+
+```
+
+## Visualization of the selected curves
+# cross-correlation of stationary PN data
+
+# cross-correlation with stationary Pos_length data
+# cross-correlation with stationary Neg_length data
+# cross-correlation with stationary soma_actin data
+```{r}
+ccf_all_list<-list(PN=ccf_PN_list, Poslen=ccf_Poslen_list, Neglen=ccf_Neglen_list, soma=ccf_somaActin_list)
+
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+selected_ccf <- ccf_all_list$soma$Pos_Length %>% as.data.table()
+selected_ccf$lag<- selected_ccf$lag/freq
+
+stacked_ccf_mat <- selected_ccf %>% gather(Cell, ccf, -lag) # select which CCF of measurements to show
+df_summary <- stacked_ccf_mat %>% group_by(lag) %>% rstatix::get_summary_stats(ccf)
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+ggplot(df_summary, aes(x=lag, y=mean)) +
+   
+   geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="lightgrey", alpha=1)+
+  geom_line(size=1, alpha=1) +
+ theme_ipsum(grid = F, ticks = T)+ 
+   geom_vline(xintercept=0, linetype="dashed", color = "black")+
+   geom_hline(yintercept=0, linetype="dashed", color = "black")+
+  
+    stat_peaks(colour = "red", ignore_threshold = 0.7) +
+ stat_peaks(geom = "text", colour = "red", vjust = -0.5, ignore_threshold = 0.7) +
+  stat_valleys(colour = "blue", ignore_threshold = 0.9)+
+ stat_valleys(geom = "text", colour = "blue", angle = 0, vjust = 1.5, hjust = 1, ignore_threshold = 0.9)+
+  
+   scale_y_continuous( breaks = scales::pretty_breaks(n = 5))+
+  scale_x_continuous(expand = c(0, 0), limits = c(-50, 50), breaks = scales::pretty_breaks(n = 8)) + 
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+fig_A <- stacked_ccf_mat %>% 
+ggplot(aes(x=lag, y=ccf)) + geom_point(alpha=0.3, size=0.5) +
+   geom_line(aes(color=Cell), size=0.8)+ theme(legend.position = "none") 
+
+fig_B <-stacked_ccf_mat %>% 
+  ggplot(aes(x = lag, y = ccf, fill=Cell)) +
+    geom_area(alpha=1 , size=.05, colour="white") +
+    #scale_fill_viridis(discrete = T) +  
+  #scale_fill_brewer(palette = "Set2") +
+    theme_ipsum(grid = F, ticks = T)+ 
+   geom_vline(xintercept=0, linetype="dashed", color = "black")+
+   scale_y_continuous( breaks = scales::pretty_breaks(n = 7))+
+  scale_x_continuous(expand = c(0, 0), limits = c(-100, 100), breaks = scales::pretty_breaks(n = 8)) + 
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+
+fig_C <-ggplot(df_summary, aes(x=Time, y=mean)) +
+   geom_line(size=1, alpha=0.8) +
+   geom_ribbon(aes(ymin=mean-sem, ymax=mean+sem), fill="blue", alpha=0.2)
+
+ggpubr::ggarrange(fig_A,fig_B,fig_C,
+                  labels = LETTERS[1:3],
+                  ncol = 2, nrow = 2,  legend="none")
+
+```
+
+```{r}
+ggsave(
+  "avg_2.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+
+```
+
+## Import time-series neurite length data
+```{r}
+
+# multivariate time series: multiple neurites
+mts_list<- list()
+mts_avg_list <- list()
+mts_stationary_list <- list()
+
+freq <- 0.25 # set frequency (1/interval)
+#pixel <- 0.0648 # set pixel size
+
+for (n in 1:length(length_list))  {
+ 
+  length_mat<-length_list[[n]] %>% as.data.table()
+  length_mat$sum_length <- length_mat %>% rowSums() 
+  
+  intensity_mat<-Tip_actin_list[[n]]%>% as.data.table()
+  intensity_mat$sum_intensity <- intensity_mat %>% rowSums()
+  
+  mts_list[[n]]<- cbind(length_mat, intensity_mat) %>% ts(frequency = freq, start = c(0, 1)) 
+  
+  # Moving Average to smoothen out outliers/noise
+  mts_avg_list[[n]] <- mts_list[[n]] %>% forecast::ma(5) %>% as.ts()
+  colnames(mts_avg_list[[n]])<-colnames(mts_list[[n]])
+  
+  # Differential 
+  mts_stationary_list[[n]] <- mts_avg_list[[n]] %>% MTS::diffM(d=1) %>% ts(frequency = freq, start = c(0, 1))
+  
+}
+
+names(mts_list)<- names(length_list)
+names(mts_avg_list)<- names(length_list)
+names(mts_stationary_list)<- names(length_list)
+
+```
+
+## Plotting the time series as curves
+```{r}
+
+mts_profile_list <- list()
+avg_profile_list <- list()
+sta_profile_list <- list()
+thres= 0.3 # change threshold for stationary profile here
+
+for (n in 1:length(mts_avg_list))  {
+  
+ plot_title<- paste(names(length_list)[n], sep = "")
+ selected_data <- grep(paste(c("Tip.point"),collapse="|"),  colnames(mts_avg_list[[n]]))
+
+ theme_set(theme_bw())
+ avg_profile_list[[n]] <- mts_avg_list[[n]][, selected_data] %>%  autoplot() +
+  ggtitle (plot_title) +
+  geom_line(aes(),size=1)  +
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+ 
+ mts_profile_list[[n]] <- mts_list[[n]][, selected_data] %>%  autoplot() +
+  ggtitle (plot_title) +
+  geom_line(aes(),size=1)  +
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+ 
+ sta_profile_list[[n]] <- mts_stationary_list[[n]][, selected_data] %>%  autoplot() +
+  ggtitle (plot_title) +
+  geom_line(aes(),size=0.25)  +
+   geom_hline(yintercept=0, linetype="dashed", color = "red")+
+   geom_hline(yintercept=thres, linetype="dashed", color = "blue")+
+   geom_hline(yintercept=-thres, linetype="dashed", color = "blue")+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+ 
+}
+
+names(mts_profile_list) <- names(length_list)
+names(avg_profile_list) <- names(length_list)
+names(sta_profile_list) <- names(length_list)
+```
+
+## Visualization of the selected curves
+## Calculate neurite outgrowth/retraction events from the stationary/differential curves at different thresholds
+
+```{r}
+selected_list <- mts_stationary_list # mts_stationary_list or mts_avg_list
+
+pos_neg_thres_list <- list()
+
+res <- 0.03
+fold<- 10
+
+for (n in 1: fold){ 
+  
+  thres= n*res
+  pos_neg_list <- list()
+  
+  for (m in 1:length(selected_list)) {
+    
+    selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+    length_mat<- selected_list[[m]][, selected_data] %>% as.data.frame()
+    
+    length_mat2 <- length_mat
+    neurite_num <- ncol(length_mat)
+  
+    tab1 <- apply(length_mat, 1, function(x) sum(x > thres, na.rm = TRUE)) %>%  table() %>% as.data.table()
+    tab1$act<- "extension"
+    names(tab1)[1]<- "Num"
+    tab1$Num <- tab1$Num %>% as.numeric()
+    tab1$pct<- tab1$N/sum(tab1$N)
+    tab1$rel_n <- tab1$Num/neurite_num
+    tab1$Cell<- names(selected_list)[m]
+    
+    tab2 <- apply(length_mat, 1, function(x) sum(x < -thres, na.rm = TRUE)) %>%  table() %>% as.data.table()
+    tab2$act<- "retraction"
+    names(tab2)[1]<- "Num"
+    tab2$Num <- tab2$Num %>% as.numeric()
+    tab2$pct<- tab2$N /sum(tab2$N)
+    tab2$rel_n <- tab2$Num/neurite_num
+    tab2$Cell<- names(selected_list)[m]
+  
+    tab3 <- apply(length_mat, 1, function(x) sum(x < thres & x > -thres, na.rm = TRUE)) %>%  table() %>% as.data.table()
+    tab3$act<- "pause"
+    names(tab3)[1]<- "Num"
+    tab3$Num <- tab3$Num %>% as.numeric()
+    tab3$pct<- tab3$N/sum(tab3$N)
+    tab3$rel_n <- tab3$Num/neurite_num
+    tab3$Cell<- names(selected_list)[m]
+    
+    tab4 <- rbind(tab1, tab2, tab3)
+    tab4$Thres<- thres
+    
+    pos_neg_list[[m]] <- tab4
+  }
+
+  names(pos_neg_list)<- names(selected_list)
+  
+  pos_neg_thres_list[[n]]<- assign(paste0("Thres_", thres, sep=""),pos_neg_list)
+  names(pos_neg_thres_list)[n]<- paste0("Thres_", thres, sep="")
+  
+}
+```
+
+```{r message=FALSE, warning=FALSE}
+summary_list <- list()
+
+for (n in 1: fold){
+  
+  pos_neg_list <- pos_neg_thres_list[[n]]
+  
+  pos_neg_tab_all <- pos_neg_list[[1]] 
+  
+  for (m in 2:length(pos_neg_list)) {
+    
+    df2 <- pos_neg_list[[m]] 
+    pos_neg_tab_all <- rbind(pos_neg_tab_all, df2) 
+  
+  }
+
+  tab <- pos_neg_tab_all[act == "extension"] %>% group_by(Num) %>% rstatix::get_summary_stats(pct)
+  tab$Thres<- n*res
+  summary_list [[n]] <- tab 
+
+}
+
+names(summary_list) <-  names(pos_neg_thres_list)
+
+df_summary_all <- summary_list [[1]]
+
+for (n in 2:fold){
+  df_summary_all <-  rbind (df_summary_all, summary_list [[n]])
+  
+}
+
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+ggplot(df_summary_all, aes(x=Num, y=mean, group=Thres)) +
+  
+  geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd, fill=Thres),   alpha=0.05) + 
+  geom_line(aes(colour=Thres), size=1, alpha=1) +
+  
+  scale_y_continuous(  breaks = scales::pretty_breaks(n = 6))+
+  scale_x_continuous(name="Neurite_No", limits=c(0, 6), expand = c(0, 0), breaks = c(0,1,2,3,4,5,6))+
+  
+  scale_fill_viridis(discrete = F) + # scale_fill_brewer(palette = "Set2") +
+  scale_color_viridis(discrete = F)+
+
+  theme_linedraw()+
+  geom_hline(yintercept=0, linetype="dashed", color = "black")+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12), 
+        legend.position = "none") #for centering the text
+```
+
+```{r}
+ggsave(
+  "retraction_freq.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r}
+pos_neg_list <- pos_neg_thres_list$Thres_0.3
+
+pos_neg_tab_all <- pos_neg_list[[1]] 
+
+for (m in 2:length(pos_neg_list)) {
+  
+  df2 <- pos_neg_list[[m]] 
+  pos_neg_tab_all <- rbind(pos_neg_tab_all, df2) 
+
+}
+
+tab <- pos_neg_tab_all[act == "extension"]
+
+df_summary <- tab %>% group_by(Num) %>% rstatix::get_summary_stats(pct)
+
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+
+ggplot(df_summary, aes(x=Num, y=mean)) +
+  
+  geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="lightgrey", alpha=1)+
+
+  geom_line(size=1, alpha=1) +
+  scale_y_continuous(  breaks = scales::pretty_breaks(n = 6))+
+  scale_x_continuous(name="Neurite_No", limits=c(0,4), expand = c(0, 0), breaks = c(0,1,2,3,4,5,6))+
+  
+  scale_fill_viridis(discrete = F) + # scale_fill_brewer(palette = "Set2") +
+  scale_color_viridis(discrete = F)+
+
+  theme_linedraw()+
+  geom_hline(yintercept=0, linetype="dashed", color = "black")+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12), 
+        legend.position = "none") #for centering the text
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+ggplot(data=pos_neg_tab_all, aes(x=Num, y=pct, group=Cell)) +
+  geom_line((aes(color=Cell)))+
+  geom_point((aes(color=Cell)))+ 
+scale_x_continuous(name="Neurite_No", limits=c(0, 6), breaks = c(0,1,2,3,4,5,6))+
+theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12), 
+        legend.position = "none") #for centering the text
+```
+
+```{r}
+ggsave("ExtendingNeuriteFreq.pdf",plot = last_plot(), device = "pdf")
+```
+
+# Create time-series data of total neurite length and actin intensity/density at neurite tip, shaft, and soma. 
+```{r}
+
+mts_list2<- list()
+mts_avg_list2 <- list()
+mts_stationary_list2 <- list()
+
+freq <- 0.25 # set frequency (1/interval)
+
+for (n in 1:ncol(soma_Actin_df))  {
+  
+  k <- names(soma_Actin_df)[n]
+ 
+  mat <- length_list[[k]] %>% rowSums() %>% as.data.table() # total neurite length
+  colnames(mat) <- "sum_length"
+  
+  # get soma intensity
+  
+  Dim <- nrow(Tip_actin_list[[k]])
+  mat$soma_actin <- soma_Actin_df[1:Dim, n ] 
+
+  mat$sum_tip_actin <- Tip_actin_list[[k]] %>% rowSums()
+
+  mat$sum_neurite_actin <-  Neurite_actin_list[[k]] %>% rowSums()
+
+  mat$sum_actin <- (Neurite_actin_list[[k]]+ Tip_actin_list[[k]]) %>% rowSums() # total actin intensity at the whole neurite
+
+  mat$sum_actin_density <- mat$sum_actin/mat$sum_length # actin density at the whole neurite
+
+  mts_list2[[n]]<- mat %>% ts(frequency = freq, start = c(0, 1)) 
+  
+  mts_avg_list2[[n]] <- mts_list2[[n]] %>% forecast::ma(5) %>% as.ts() # Moving Average #1
+  colnames(mts_avg_list2[[n]])<-colnames(mts_list2[[n]])
+  
+  mts_stationary_list2[[n]] <- mts_avg_list2[[n]] %>% 
+    MTS::diffM(d=1) %>% 
+    forecast::ma(3) %>%                                             # Moving Average #2
+    ts(frequency = freq, start = c(0, 1)) 
+  
+  colnames(mts_stationary_list2[[n]])<-colnames(mts_list2[[n]])
+  
+}
+
+names(mts_list2)<-names(soma_Actin_df)
+names(mts_avg_list2)<- names(soma_Actin_df)
+names(mts_stationary_list2)<- names(soma_Actin_df)
+```
+
+```{r message=FALSE, warning=FALSE}
+selected_list <- mts_stationary_list2
+plot_list.2 <- list()
+
+for (n in 1:length(selected_list ))  {
+
+ts <- selected_list[[n]]
+ 
+fig_A <- ts[, 1] %>%  autoplot() +
+                                     ggtitle (colnames(selected_list[[1]])[1]) +
+                                      geom_hline(yintercept=0, linetype="dashed", color = "black") +
+   scale_x_continuous(expand = c(0, 0), limits = c(0, NA), breaks = scales::pretty_breaks(n = 8)) + 
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+fig_B <- ts[, 2] %>%  autoplot() +
+                                     ggtitle (colnames(selected_list[[1]])[2]) +
+                                      geom_hline(yintercept=0, linetype="dashed", color = "black") +
+   scale_x_continuous(expand = c(0, 0), limits = c(0, NA), breaks = scales::pretty_breaks(n = 8)) + 
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+fig_C <- ts[, 3] %>%  autoplot() +
+                                     ggtitle (colnames(selected_list[[1]])[3]) +
+                                      geom_hline(yintercept=0, linetype="dashed", color = "black") +
+   scale_x_continuous(expand = c(0, 0), limits = c(0, NA), breaks = scales::pretty_breaks(n = 8)) + 
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+plot_list.2[[n]]<- ggpubr::ggarrange(fig_A,fig_B,fig_C,
+                  labels = LETTERS[1:3],
+                  ncol = 2, nrow = 2,  legend="none")
+
+}
+
+ names(plot_list.2)<- names(length_list)
+```
+
+# cross-correlation with sum neurite length
+# cross-correlation with soma actin
+```{r}
+ccf_sum_all_list<-list(length=ccf_sum_list, somaActin=ccf_sumSomaActin_list)
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+selected_ccf <-ccf_sum_all_list$somaActin$sum_tip_actin %>% as.data.table()
+
+selected_ccf$lag <- selected_ccf$lag/freq
+
+stacked_ccf_mat <- selected_ccf %>% gather(Cell, ccf, -lag) # select which CCF of measurements to show
+df_summary <- stacked_ccf_mat %>% group_by(lag) %>% rstatix::get_summary_stats(ccf)
+```
+
+```{r}
+ggsave(
+  "somaActin_SumTipactin.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list_comb.RData",  sep = "/")
+save.image(file=saved_path)
+```

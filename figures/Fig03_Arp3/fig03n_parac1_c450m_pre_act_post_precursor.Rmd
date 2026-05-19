@@ -1,0 +1,108 @@
+---
+title: "Fig 3n + ED Fig 5b - PA-Rac1 C450M precursor (Pre/Act/Post)"
+output: html_notebook
+params:
+  variant: "C450M"
+  pdf_name: "C405_length.eps"
+  length_y_limit: !r c(-40, 30)
+---
+
+<!--
+================================================================================
+  STAGE-1 PRECURSOR wrapper for Fig 3n + ED Fig 5b, PA-Rac1 C450M variant
+  (Rac1 nucleotide-binding mutant — defective Rac1 activation).
+================================================================================
+  Variant-specific data loading happens HERE; the deterministic
+  pivot / save / plot pipeline is delegated to:
+      ../../templates/fig03n_parac1_precursor.Rmd
+
+  Body N = 22 ROIs (matches published Fig 3n N = 57; the difference reflects
+  cell/event aggregation in the consolidator).
+
+  Pipeline -> downstream consolidator
+      figures/Fig03_Arp3/fig03n_parac1_gc_soma_length.Rmd
+  which reads:
+      C450M_actin_int.rds  (produced here)
+      C450M_length.rds     (produced here)
+
+  NB: legacy PDF filename ``C405_length.eps`` (not ``C450M_length.eps``)
+  is preserved for byte-equivalent reproduction.
+
+  Essentiality: Essential. Pairs with the KO and T17N sibling precursors.
+
+  Original 195-line monolithic wrapper refactored 2026-05-12: variant-
+  specific CSV-loading + actin-table concatenation kept inline; the
+  generic pivot/save/plot pipeline moved to the canonical template.
+-->
+
+## Step 1: libraries + load saved environment
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(viridis)
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "actin_quant_C450M.RData", sep = "/")
+load(file = saved_path)
+```
+
+## Step 2: Build `length_input` from per-cell *_length*.csv files
+
+```{r message=FALSE}
+folder_path <- Path_1
+file_paths  <- list.files(path = folder_path, pattern = "_length(.*)csv$",
+                          recursive = TRUE, full.names = TRUE)
+folder_name <- basename(dirname(file_paths))
+
+data_list <- file_paths %>% map(read.csv)
+for (n in 1:length(data_list)) {
+  data_list[[n]]$Exp <- folder_name[n]
+}
+
+length_input <- data_list %>% reduce(bind_rows)
+```
+
+## Step 3: Build `actin_input` from Actin_int_C405M + LSM980 tables (N=22)
+
+```{r}
+Actin_quant <- rbind(Actin_int_C405M, Actin_int_C405M_LSM980)
+
+Actin_quant$Series <- c("Pre", "Act", "Post")
+Actin_quant$roi    <- rep(1:22, each = 3)
+Actin_quant$Image  <- Actin_quant$Label %>% str_remove("\\.tif:.*")
+Actin_quant$Site   <- "GC"
+Actin_quant$exp    <- "WT_PA_Rac1_C450M"
+
+actin_input <- Actin_quant
+```
+
+## Step 4: include canonical pivot/save/plot template
+
+```{r child = "../../templates/fig03n_parac1_precursor.Rmd"}
+```
+
+## Step 5: persist working environment
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "actin_quant_C450M.RData", sep = "/")
+save.image(file = saved_path)
+```

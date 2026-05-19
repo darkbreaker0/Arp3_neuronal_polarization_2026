@@ -1,0 +1,1376 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+## Package installation
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+load(file=saved_path)
+
+```
+
+## Read .csv files
+```{r}
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+Actin_list  <- subfolder_list [ grepl("LA", subfolder_list) ]
+Arp3_list  <- subfolder_list [ grepl("Arp3", subfolder_list) ]
+Myl_list  <- subfolder_list [ grepl("Myl", subfolder_list) ]
+
+list.files(Myl_list[1],pattern = "Myl(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+
+list.files(Myl_list[1],pattern = "Myl(.*)tif$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = F)  #get the full name (path and file name) of each file
+
+```
+
+```{r}
+Myl_quant$Series<- c("Pre", "Act", "Post")
+
+Myl_quant$roi <- rep(1:13, each=3)
+
+Myl_quant$Mean <- Myl_quant$Mean - 10000
+```
+
+```{r}
+Myl_quant_wide<- pivot_wider(Myl_quant, id_cols = "roi", names_from = "Series", values_from = "Mean")
+
+Myl_quant_wide$mean<- rowMeans(Myl_quant_wide[,c(2:4)])
+
+Myl_quant_wide$Pre <- Myl_quant_wide$Pre-Myl_quant_wide$mean
+Myl_quant_wide$Act <- Myl_quant_wide$Act-Myl_quant_wide$mean
+Myl_quant_wide$Post <- Myl_quant_wide$Post-Myl_quant_wide$mean
+
+Myl_quant_long<- pivot_longer(Myl_quant_wide[-5,], cols=c(2:4), names_to = "Series", values_to="Int")
+
+Myl_quant_long$Series <- factor(Myl_quant_long$Series, levels=unique(Myl_quant_long$Series))
+
+```
+
+```{r}
+library(ggpubr)
+
+my_comparisons <- list( c("Pre", "Act"), c("Act", "Post"), c("Pre", "Post") )
+
+ggplot(Myl_quant_long, aes(x=Series, y=Int, fill=Series)) + 
+  geom_violin(trim=FALSE, 
+              kernel ="gaussian", 
+              adjust=1.6)+
+  #geom_boxplot(width=0.1, fill="white")  +
+  geom_point(aes(fill=Series,group=roi), position = position_dodge(0.2))+
+  geom_line(aes(group=roi), position = position_dodge(0.2)) +
+  stat_compare_means(comparisons = my_comparisons, paired=T, method="wilcox.test")+
+  scale_y_continuous( expand = c(0, 0), limits = c(-40, 60), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+```{r}
+ggsave(
+  "Myl.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+```{r}
+Actin_quant$Series<- c("Pre", "Act", "Post")
+
+Actin_quant$roi <- rep(1:13, each=3)
+
+Actin_quant$Mean <- Actin_quant$Mean - 10000
+```
+
+```{r}
+Actin_quant_wide<- pivot_wider(Actin_quant, id_cols = "roi", names_from = "Series", values_from = "Mean")
+
+Actin_quant_wide$mean<- rowMeans(Actin_quant_wide[,c(2:4)])
+
+Actin_quant_wide$Pre <- Actin_quant_wide$Pre-Actin_quant_wide$mean
+Actin_quant_wide$Act <- Actin_quant_wide$Act-Actin_quant_wide$mean
+Actin_quant_wide$Post <- Actin_quant_wide$Post-Actin_quant_wide$mean
+
+Actin_quant_long<- pivot_longer(Actin_quant_wide[-c(5,8), ], cols=c(2:4), names_to = "Series", values_to="Int")
+
+Actin_quant_long$Series <- factor(Actin_quant_long$Series, levels=unique(Actin_quant_long$Series))
+
+```
+
+```{r}
+ggsave(
+  "Actin.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+# Myl intensity
+```{r}
+
+selected_list  <- Myl_list #[ !grepl("200916", Kymo_list) ]
+
+freq <- 1 # set frequency (1/interval)
+
+Myl_df_list<- list()
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(selected_list))  
+{
+  
+  df <- list.files(selected_list[n],pattern = "Myl(.*)csv$", 
+                     recursive = F,  
+                     include.dirs = F, 
+                     full.name = TRUE)  %>% read.csv(header = TRUE)
+  
+ # df <-  mapply(`*`,df, 1/100)
+  
+  tif_list <- list.files(selected_list[n], pattern = "Myl(.*)tif$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = F)  #get the full name (path and file name) of each file
+  
+  tif_list <- gsub("-", ".", tif_list)
+  
+  df_list<- list()
+  
+  for (m in 1:length(tif_list))  
+     {
+    
+      df1 <- df[, grep(tif_list[m],  colnames(df)), drop = FALSE] %>% as.data.table()
+      
+      colnames(df1)<-c(paste("roi_", 1:(ncol(df1)-1), sep = ""), "soma")
+      
+      df_list[[m]] <- df1
+      
+  }
+  
+  names(df_list)<- tif_list
+
+  Myl_df_list[[n]]<- df_list
+ 
+}
+
+NM <- gsub("G:/LSM980/PA_Rac1/Analyzed/", "", selected_list)
+names(Myl_df_list) <- gsub("/Myl_LA", "", NM)
+
+Myl_df_list <- unlist(Myl_df_list, recursive=FALSE)
+
+```
+
+# Arp3 intensity
+```{r}
+
+selected_list  <- Arp3_list #[ !grepl("200916", Kymo_list) ]
+
+freq <- 1 # set frequency (1/interval)
+
+Arp3_df_list<- list()
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(selected_list))  
+{
+  
+  df <- list.files(selected_list[n],pattern = "Arp3(.*)csv$", 
+                     recursive = F,  
+                     include.dirs = F, 
+                     full.name = TRUE)  %>% read.csv(header = TRUE)
+  
+ # df <-  mapply(`*`,df, 1/100)
+  
+  tif_list <- list.files(selected_list[n],pattern = "Arp3(.*)tif$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = F)  #get the full name (path and file name) of each file
+  
+  tif_list <- gsub("-", ".", tif_list)
+  
+  df_list<- list()
+  
+  for (m in 1:length(tif_list))  
+     {
+    
+      df1 <- df[, grep(tif_list[m],  colnames(df)), drop = FALSE] %>% as.data.table()
+      
+      colnames(df1)<-c(paste("roi_", 1:(ncol(df1)-1), sep = ""), "soma")
+      
+      df_list[[m]] <- df1
+      
+  }
+  
+  names(df_list)<- tif_list
+
+  Arp3_df_list[[n]]<- df_list
+ 
+}
+
+NM <- gsub("G:/LSM980/PA_Rac1/Analyzed/", "", selected_list)
+names(Arp3_df_list) <- gsub("/Arp3_LA", "", NM)
+
+Arp3_df_list <- unlist(Arp3_df_list, recursive=FALSE)
+
+```
+
+# Actin intensity
+```{r}
+
+selected_list  <- Actin_list #[ !grepl("200916", Kymo_list) ]
+
+freq <- 1 # set frequency (1/interval)
+
+Actin_df_list<- list()
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(selected_list))  
+{
+  
+  df <- list.files(selected_list[n],pattern = "Actin(.*)csv$", 
+                     recursive = F,  
+                     include.dirs = F, 
+                     full.name = TRUE)  %>% read.csv(header = TRUE)
+  
+ # df <-  mapply(`*`,df, 1/100)
+  
+  tif_list <- list.files(selected_list[n],pattern = "LA(.*)tif$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = F)  #get the full name (path and file name) of each file
+  
+  tif_list <- gsub("-", ".", tif_list)
+  
+  df_list<- list()
+  
+  for (m in 1:length(tif_list))  
+     {
+    
+      df1 <- df[, grep(tif_list[m],  colnames(df)), drop = FALSE] %>% as.data.table()
+      
+      colnames(df1)<-c(paste("roi_", 1:(ncol(df1)-1), sep = ""), "soma")
+      
+      df_list[[m]] <- df1
+      
+  }
+  
+  names(df_list)<- tif_list
+
+  Actin_df_list[[n]]<- df_list
+ 
+}
+
+NM <- gsub("G:/LSM980/PA_Rac1/Analyzed/", "", selected_list)
+NM  <- gsub("/Myl_LA", "", NM)
+NM  <- gsub("/Arp3_LA", "", NM)
+names(Actin_df_list) <-  gsub("/LA", "", NM)
+
+Actin_df_list <- unlist(Actin_df_list, recursive=FALSE)
+
+```
+
+```{r}
+all_list <- list(Actin = Actin_df_list, 
+                 Arp3 = Arp3_df_list,  
+                 Myl = Myl_df_list)
+```
+
+# Create stationary (differential) curve of all measurements
+```{r message=FALSE, warning=FALSE}
+all_sta_list <- list()
+all_mts_list <- list()
+
+freq <- 1 # set frequency (1/interval). 0.2 for _Arp3SNAPSiR_07, 0.5 for _Arp3SNAPSiR_01
+
+for (m in 1:length(all_list)) {
+  
+  selected_list <- all_list[[m]]
+  #selected_list <- selected_list[ grepl("Arp3SNAPSiR", names(selected_list) )]
+  sta_list <- list()
+  mts_list <- list()
+
+  for (n in 1:length(selected_list))  {
+ 
+    df <- selected_list[[n]]
+    
+    df1 <- df %>% 
+    forecast::ma(3) %>%                                    # smoothing #1
+    MTS::diffM(d=1) %>% 
+    forecast::ma(5) %>% 
+    ts(frequency = freq, start = c(0, 1)) %>% imputeTS::na_kalman()
+  
+   #df1 <-pracma::hampel(df1, k=3)$y # remove jumping spikes
+  
+    colnames(df1)<-colnames(df)
+    
+    sta_list[[n]] <- df1 
+    
+    df2 <- df %>% forecast::ma(5) %>% imputeTS::na_kalman()
+    colnames(df2)<-colnames(df)
+    
+    mts_list[[n]] <- df2 
+  
+  }
+
+names(sta_list)<-  names(selected_list)
+names(mts_list)<-  names(selected_list)
+  
+all_sta_list[[m]]<- sta_list
+all_mts_list[[m]]<- mts_list
+  
+}
+
+names(all_sta_list)<- names(all_list )
+names(all_mts_list)<- names(all_list )
+```
+
+```{r}
+all_sta_list$Actin$`210115.PARac1mVenus_Arp3SNAP_LAmScar.02.3.tif` %>%  na.spline(na.rm = F)
+
+all_sta_list$Actin$`210115.PARac1mVenus_Arp3SNAP_LAmScar.02.3.tif` %>% imputeTS::na_kalman()
+
+```
+
+# check the curve of created stationary data
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+selected_list <- all_mts_list$Actin$`210205_good.KO_PARac1mVenus_LASNAP_Myl12amScar.01.1415.tif`
+
+ selected_list %>%  autoplot() +
+  geom_line(aes(),size=0.25)  +
+ scale_y_continuous( expand = c(0, 0), limits = c(10000, 10050), breaks = scales::pretty_breaks(n = 7))+
+  scale_x_continuous(expand = c(0, 0),  limits = c(0, 160), breaks = scales::pretty_breaks(n = 8)) + 
+   theme_ipsum(grid = F, ticks = T) + 
+   theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold"),
+        legend.position = "none")  #for centering the text
+```
+
+```{r}
+ggsave(
+  "avg_2.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+## We convert the multiple times series data to appropriate dataframe for stack area plot
+```{r}
+
+selected_list <-all_sta_list$Myl
+stacked_avg_list <- list()
+
+for (m in 1:length(selected_list)) {
+  
+  df <- selected_list[[m]]
+  
+  selected_data <- grep(paste(c("roi"),collapse="|"),  colnames(df))
+  
+  df  <- df [, selected_data] %>%  as.data.frame()
+  df$Time<- 1:nrow(df)
+  
+  stacked_avg_list [[m]] <- df %>% pivot_longer(cols=c(1:ncol(df)-1), names_to="roi", values_to="int")
+  
+}
+
+names( stacked_avg_list )<- names(selected_list)
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+stacked_avg_list$`210119.PARac1mVenus_LASiR_Myl12amScar.01.tif` %>% 
+  ggplot(aes(x = Time, y = int, fill = roi)) +
+    geom_area(alpha=1 , size=.25, colour="white") +
+  
+  scale_y_continuous( expand = c(0, 0),  
+                      limits = c(-5, 5), 
+                      breaks = scales::pretty_breaks(n = 7))+
+  
+  scale_x_continuous(expand = c(0, 0), 
+                     limits=c(25,144), 
+                     breaks = scales::pretty_breaks(n = 8)) + 
+  
+  scale_fill_viridis(discrete = T) + # scale_fill_brewer(palette = "Set2") +
+  
+  geom_hline(yintercept=0, linetype="dashed", color = "black")+
+  
+  geom_vline(xintercept=c(25,49,73,97,121), linetype="dashed", color = "black")+
+
+  #geom_vline(xintercept=c(145,181,205,241,265,300 ), linetype="dashed", color = "black")+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+```{r}
+ggsave(
+  "sta_stack.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+# Here we separate the outrgwoth and retraction events first, sum the changes of all neurites, and then do smoothening. (separate -> sum -> smoothening)
+```{r}
+all_sta_PN_list <- list()
+
+for (k in 1:length(all_sta_list)){
+  
+  selected_list <- all_sta_list[[k]]
+  sta_PN_list <- list()
+  
+  thres= 0.0 # change threshold here
+  
+  for (m in 1:length(selected_list)) {
+    
+    DT <- selected_list[[m]] %>% as.data.frame()
+   
+    DT_pos<- DT
+    DT_neg<- DT
+  
+    for (n in 1:dim(DT)[2]){
+        DT_pos[, n][DT_pos[, n] < 0] <- 0 
+        DT_neg[, n][DT_neg[, n] > 0] <- 0 
+    }
+    
+    mat_sum <- data.frame(rowSums(DT_pos), -rowSums(DT_neg)) # add neg sign
+    
+   # mat_sum [, 1][mat_sum [, 1] < thres] <- 0 
+   # mat_sum [, 2][mat_sum [, 2] > -thres] <- 0
+    
+    mat_sum <- mat_sum %>% forecast::ma(3)                    # smoothing #2
+  
+    colnames(mat_sum)<- c(paste("Pos_", names(all_list)[k], sep = ""), paste("Neg_", names(all_list)[k], sep = ""))
+    sta_PN_list[[m]] <- mat_sum
+  
+  }
+  
+  names(sta_PN_list)<-  names(selected_list)
+  
+  all_sta_PN_list[[k]]<- sta_PN_list
+  
+}
+
+names(all_sta_PN_list)<- names(all_list )
+```
+
+# Combine all stationary PN data of each videos, and add stationary soma data
+```{r}
+comb_sta_list<- list()
+
+k <- all_sta_PN_list[[1]]%>% length()
+
+for (m in 1:k){
+  
+  mat <- all_sta_PN_list[[1]][m] %>% as.data.frame()
+  colnames(mat)<- sub('.*\\.', '', colnames(mat))
+  
+  for (n in 2:length(all_sta_PN_list)){
+    
+    mat2 <- all_sta_PN_list[[n]][m] %>% as.data.table()
+    colnames(mat2)<- sub('.*\\.', '', colnames(mat2))
+    
+    mat <- data.frame(mat, mat2)
+  }
+  
+  Dim <- mat %>% nrow()
+  NM <- all_sta_PN_list[[1]][m] %>% names()
+  mat3 <- mts_stationary_list[[NM]][1:Dim, c(2:4)] %>% as.data.table() # soma data
+  mat <- data.frame(mat, mat3)
+  
+ comb_sta_list[[m]]<- mat %>% ts(frequency = freq, start = c(0, 1)) 
+
+}
+
+names(comb_sta_list)<-   all_sta_PN_list[[1]] %>% names()
+```
+
+## Plotting the time series as curves
+```{r message = FALSE, warning=FALSE}
+
+selected_list <- comb_sta_list
+plot_list.1 <- list()
+
+for (n in 1:length(selected_list ))  {
+
+ts <- selected_list[[n]]
+ 
+fig_A <- ts[, c(1,2)] %>%  autoplot() +
+                                     ggtitle (names(all_sta_PN_list)[1]) +
+                                      geom_hline(yintercept=0, linetype="dashed", color = "black") +
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+ 
+fig_B <- ts[, c(3,4)] %>%  autoplot() +
+                                      ggtitle (names(all_sta_PN_list)[2]) +
+                                        geom_hline(yintercept=0, linetype="dashed", color = "black") +
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+fig_C <-ts[, c(5,6)] %>%  autoplot() +
+                                      ggtitle (names(all_sta_PN_list)[3]) +
+                                        geom_hline(yintercept=0, linetype="dashed", color = "black") +
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+fig_D <- ts[, c(7,8)] %>%  autoplot() +
+                                      ggtitle (names(all_sta_PN_list)[4]) +
+                                        geom_hline(yintercept=0, linetype="dashed", color = "black") +
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+fig_E <- ts[, c(9,10)] %>%  autoplot() +
+                                      ggtitle (names(all_sta_PN_list)[5]) +
+                                        geom_hline(yintercept=0, linetype="dashed", color = "black") +
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+fig_F <- ts[, c(11,12)] %>%  autoplot() +
+                                      ggtitle (names(all_sta_PN_list)[6]) +
+                                        geom_hline(yintercept=0, linetype="dashed", color = "black") +
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+fig_G <- ts[, c(13,14)] %>%  autoplot() +
+                                      ggtitle (names(all_sta_PN_list)[7]) +
+                                        geom_hline(yintercept=0, linetype="dashed", color = "black") +
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+fig_H <- ts[, c(15)] %>%  autoplot() +
+                                      ggtitle ("soma_actin") +
+                                        geom_hline(yintercept=0, linetype="dashed", color = "black") +
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+fig_I <- ts[, c(16)] %>%  autoplot() +
+                                      ggtitle ("soma_Arp3") +
+                                        geom_hline(yintercept=0, linetype="dashed", color = "black") +
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+plot_list.1[[n]]<- ggpubr::ggarrange(fig_A,fig_B,fig_C,fig_D,fig_E,fig_F,fig_G,fig_H,fig_I,
+                  labels = LETTERS[1:9],
+                  ncol = 3, nrow = 3,  legend="none")
+
+}
+
+names(plot_list.1)<- names(comb_sta_list)
+
+```
+
+## Visualization of the selected curves
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+plot_list.1$Arp3SNAPSiR_07_02_R3D_D3D_subbg.tif
+
+```
+# cross-correlation of stationary PN data
+
+```{r warning=FALSE}
+selected_list <- comb_sta_list#[ grepl("Arp3SNAPSiR_07", names(comb_sta_list)) ]
+ccf_PN_list<- vector(mode = "list", length = length(all_list)+length(soma_intenity_list))
+
+names(ccf_PN_list)<- c(names(all_list), paste("soma_", names(soma_intenity_list), sep = ""))
+
+for (n in 1:10){
+  
+    ccfPlot <- ccf (selected_list[[1]][,(n*2-1)],  
+                            selected_list[[1]][,(n*2)], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                    plot=F, 
+                            lag.max=100) 
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf (selected_list[[m]][,(n*2-1)],  
+                            selected_list[[m]][,(n*2)], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                    plot=F, 
+                            lag.max=100) 
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-100:100)
+  ccf_PN_list[[n]] <- ccf
+}
+```
+
+```{r warning=FALSE}
+# cross-correlation with stationary Pos_length data
+
+ccf_Poslen_list<- vector(mode = "list", length = ncol(selected_list[[1]])-2)
+
+df <- selected_list[[1]] %>% as.data.table()
+
+names(ccf_Poslen_list)<- colnames(df[, -c("Pos_length","Neg_length")] )
+
+for (n in 3:length(df)){
+  
+    ccfPlot <- ccf (selected_list[[1]][,c("Pos_length")],  
+                            selected_list[[1]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                    plot=F, 
+                            lag.max=100) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf (selected_list[[m]][,c("Pos_length")],  
+                            selected_list[[m]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                    plot=F, 
+                            lag.max=100) 
+  
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-100:100)
+  ccf_Poslen_list[[n-2]] <- ccf
+}
+```
+
+```{r warning=FALSE}
+# cross-correlation with stationary Neg_length data
+
+ccf_Neglen_list<- vector(mode = "list", length = ncol(selected_list[[1]])-2)
+
+df <- selected_list[[1]] %>% as.data.table()
+
+names(ccf_Neglen_list)<- colnames(df[, -c("Pos_length","Neg_length")] )
+
+for (n in 3:length(df)){
+  
+    ccfPlot <- ccf (selected_list[[1]][,c("Neg_length")],  
+                            selected_list[[1]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                    plot=F, 
+                            lag.max=100) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf (selected_list[[m]][,c("Neg_length")],  
+                            selected_list[[m]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                    plot=F, 
+                            lag.max=100) 
+  
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<-  names(selected_list)
+  ccf$lag<- c(-100:100)
+  ccf_Neglen_list[[n-2]] <- ccf
+}
+```
+
+```{r warning=FALSE}
+# cross-correlation of Arp3-Myl data
+selected_list <- comb_sta_list
+
+ccf_Arp3Myl_list<- vector(mode = "list", length = 7)
+
+names(ccf_Arp3Myl_list)<- c(paste("Pos_", c("tip", "neurite", "Density"), sep=""), paste("Neg_", c("tip", "neurite", "Density"), sep=""), "soma")
+
+for (n in 1:7){
+  
+  pair_df<- selected_list[[1]][,grep(names(ccf_Arp3Myl_list)[n],  colnames(selected_list[[1]]))] 
+  
+    ccfPlot <- ccf (pair_df[ ,2],  
+                      pair_df[ ,3], 
+                      type = "correlation", 
+                      na.action = na.pass,
+                    plot=F, 
+                      lag.max=100) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+    
+     pair_df2<- selected_list[[m]][,grep(names(ccf_Arp3Myl_list)[n],  colnames(selected_list[[m]]))] 
+  
+      ccfPlot_2 <- ccf (pair_df2[ ,2],  
+                          pair_df2[ ,3], 
+                          type = "correlation", 
+                          na.action = na.pass,
+                        plot=F, 
+                          lag.max=100) 
+      
+      ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+      
+      ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<-  names(selected_list)
+  ccf$lag<- c(-100:100)
+  ccf_Arp3Myl_list[[n]] <- ccf
+}
+```
+
+```{r warning=FALSE}
+# cross-correlation with soma actin
+
+ccf_Actsoma_list<- vector(mode = "list", length = 8)
+
+names(ccf_Actsoma_list)<- c(paste("Pos_", c("length", "tip_actin", "neurite_actin", "Density_actin"), sep=""), paste("Neg_", c("length","tip_actin", "neurite_actin", "Density_actin"), sep=""))
+
+for (n in 1:8){
+  
+  df1 <- selected_list[[1]][ ,"soma_Actin"]
+  df2 <- selected_list[[1]][,grep(names(ccf_Actsoma_list)[n],  colnames(selected_list[[n]]))] 
+  
+    ccfPlot <- ccf (df1,  
+                      df2, 
+                      type = "correlation", 
+                      na.action = na.pass,
+                    plot=F, 
+                      lag.max=100) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+     df1 <- selected_list[[m]][ ,"soma_Actin"]
+     df2 <- selected_list[[m]][,grep(names(ccf_Actsoma_list)[n],  colnames(selected_list[[n]]))]  
+  
+      ccfPlot_2 <- ccf (df1,  
+                          df2, 
+                          type = "correlation", 
+                          na.action = na.pass,
+                         plot=F, 
+                          lag.max=100) 
+      
+      ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+      
+      ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-100:100)
+  ccf_Actsoma_list[[n]] <- ccf
+}
+```
+
+```{r warning=FALSE}
+# cross-correlation with soma Arp3
+
+ccf_Arp3soma_list<- vector(mode = "list", length = 8)
+
+names(ccf_Arp3soma_list)<- c(paste("Pos_", c("length", "tip_Arp3", "neurite_Arp3", "Density_Arp3"), sep=""), paste("Neg_", c("length","tip_Arp3", "neurite_Arp3", "Density_Arp3"), sep=""))
+
+for (n in 1:length(ccf_Arp3soma_list)){
+  
+  df1 <- selected_list[[1]][ ,"soma_Arp3"]
+  df2 <- selected_list[[1]][,grep(names(ccf_Arp3soma_list)[n],  colnames(selected_list[[n]]))] 
+  
+    ccfPlot <- ccf (df1,  
+                      df2, 
+                      type = "correlation", 
+                      na.action = na.pass,
+                    plot=F, 
+                      lag.max=100) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+     df1 <- selected_list[[m]][ ,"soma_Arp3"]
+     df2 <- selected_list[[m]][,grep(names(ccf_Arp3soma_list)[n],  colnames(selected_list[[n]]))]  
+  
+      ccfPlot_2 <- ccf (df1,  
+                          df2, 
+                          type = "correlation", 
+                          na.action = na.pass,
+                        plot=F, 
+                          lag.max=100) 
+      
+      ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+      
+      ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-100:100)
+  ccf_Arp3soma_list[[n]] <- ccf
+}
+```
+
+```{r warning=FALSE}
+ccf_all_list<-list(PN=ccf_PN_list, Poslen=ccf_Poslen_list, Neglen=ccf_Neglen_list, Arp3Myl=ccf_Arp3Myl_list, somaActin=ccf_Actsoma_list, somaArp3=ccf_Arp3soma_list)
+
+```
+
+```{r}
+selected_ccf <- ccf_all_list$Arp3Myl$soma
+
+selected_ccf$lag <- selected_ccf$lag/freq
+
+stacked_ccf_mat <- selected_ccf %>% gather(Cell, ccf, -lag) # select which CCF of measurements to show
+
+df_summary <- data.frame(Time=selected_ccf$lag, 
+                         n=tapply(stacked_ccf_mat$ccf, stacked_ccf_mat$lag, length), 
+                         mean=tapply(stacked_ccf_mat$ccf, stacked_ccf_mat$lag, mean, na.rm=TRUE))
+
+df_summary$sd <- tapply(stacked_ccf_mat$ccf, stacked_ccf_mat$lag, sd, na.rm=TRUE)
+df_summary$sem <- df_summary$sd/sqrt(df_summary$n-1)
+```
+
+```{r}
+ggplot(df_summary, aes(x=Time, y=mean)) +
+   geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="lightgrey")+
+   geom_line(size=1, alpha=1) +
+  
+   stat_peaks(colour = "red", span = 11, ignore_threshold = 0.5) +
+  stat_peaks(geom = "text", colour = "red", span = 11, ignore_threshold = 0.6, hjust = 2, angle = 0) +
+  stat_valleys(colour = "lightblue", span = 13, ignore_threshold = 0.9) +
+ stat_valleys(geom = "text", colour = "blue", span = 13, ignore_threshold = 0.9, hjust = -0.5, angle = 0) +
+  
+   theme_ipsum(grid = F, ticks = T)+ 
+   geom_vline(xintercept=0, linetype="dashed", color = "black")+
+  geom_hline(yintercept=0, linetype="dashed", color = "black")+
+   scale_y_continuous( breaks = scales::pretty_breaks(n = 6))+
+   scale_x_continuous(expand = c(0, 0),  breaks = scales::pretty_breaks(n = 8), limits = c(-400,400)) +theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+fig_A <- stacked_ccf_mat %>% 
+ggplot(aes(x=lag, y=ccf)) + geom_point(alpha=0.3, size=0.5) +
+   geom_line(aes(color=Cell), size=0.8)+ theme(legend.position = "none") 
+
+fig_B <-stacked_ccf_mat %>% 
+  ggplot(aes(x = lag, y = ccf, fill=Cell)) +
+    geom_area(alpha=1 , size=.05, colour="white") +
+    #scale_fill_viridis(discrete = T) +  
+  #scale_fill_brewer(palette = "Set2") +
+    theme_ipsum(grid = F, ticks = T)+ 
+   geom_vline(xintercept=0, linetype="dashed", color = "black")+
+   scale_y_continuous( breaks = scales::pretty_breaks(n = 7))+
+  scale_x_continuous(expand = c(0, 0), limits = c(-500, 500), breaks = scales::pretty_breaks(n = 8)) + 
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+
+fig_C <-ggplot(df_summary, aes(x=Time, y=mean)) +
+   geom_line(size=1, alpha=0.8) +
+   geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="blue", alpha=0.2)
+
+ggpubr::ggarrange(fig_A,fig_B,fig_C,
+                  labels = LETTERS[1:3],
+                  ncol = 2, nrow = 2,  legend="none")
+
+```
+
+```{r}
+ggsave(
+  "avg_2.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+```{r, message = FALSE, warning=FALSE, fig.width=5}
+library("plotly")
+sp <- ggplotly(fig_A, dynamicTicks = "y")
+style(sp, hoveron = "points", hoverinfo = "x+y+text", hoverlabel = list(bgcolor = "white"))
+```
+
+# Create time-series data of total neurite length, Arp3 and actin intensity/density at neurite tip, shaft, and soma. 
+```{r}
+
+mts_list<- list()
+mts_avg_list <- list()
+mts_stationary_list <- list()
+
+freq <- 0.1 # set frequency (1/interval)
+pixel <- 0.1296 # set pixel size
+
+for (n in 1:length(length_list))  {
+ 
+  mat <- length_list[[n]] %>% rowSums() %>% as.data.table() # total neurite length
+  colnames(mat) <- "sum_length"
+  
+  # get soma intensity
+  ColName <- gsub("Kymo_", "", names(Tip_Arp3_list)[n])
+
+  Dim <- nrow(Tip_Arp3_list[[n]])
+  mat$soma_Actin <- soma_intenity_list$Actin[1:Dim, grepl(ColName , names(soma_intenity_list$Actin)) ] 
+  mat$soma_Arp3 <- soma_intenity_list$Arp3[1:Dim, grepl(ColName , names(soma_intenity_list$Arp3)) ] 
+  mat$soma_Myl <- soma_intenity_list$Myl[1:Dim, grepl(ColName , names(soma_intenity_list$Myl)) ] 
+  
+  mat$sum_tip_actin <- Tip_Actin_list[[n]] %>% rowSums()
+  mat$sum_tip_Arp3 <- Tip_Arp3_list[[n]] %>% rowSums() 
+  mat$sum_tip_Myl <- Tip_Myl_list[[n]] %>% rowSums() 
+  
+  mat$sum_neurite_actin <-  Neurite_Actin_list[[n]] %>% rowSums()
+  mat$sum_neurite_Arp3 <-  Neurite_Arp3_list[[n]] %>% rowSums()
+  mat$sum_neurite_Myl <-  Neurite_Myl_list[[n]] %>% rowSums()
+  
+  mat$sum_actin <- (Neurite_Actin_list[[n]]+ Tip_Actin_list[[n]]) %>% rowSums() # total actin intensity at the whole neurite
+  mat$sum_Arp3 <- (Neurite_Arp3_list[[n]]+ Tip_Arp3_list[[n]]) %>% rowSums()  # total Arp3 intensity at the whole neurite
+  mat$sum_Myl <- (Neurite_Myl_list[[n]]+ Tip_Myl_list[[n]]) %>% rowSums()  # total Arp3 intensity at the whole neurite
+  
+  mat$sum_actin_density <- mat$sum_actin/mat$sum_length # actin density at the whole neurite
+  mat$sum_Arp3_density <- mat$sum_Arp3/mat$sum_length # Arp3 density at the whole neurite
+  mat$sum_Myl_density <- mat$sum_Myl/mat$sum_length # Arp3 density at the whole neurite
+
+  mts_list[[n]]<- mat %>% ts(frequency = freq, start = c(0, 1)) 
+  
+  mts_avg_list[[n]] <- mts_list[[n]] %>% forecast::ma(2) %>% as.ts() # Moving Average #1
+  colnames(mts_avg_list[[n]])<-colnames(mts_list[[n]])
+  
+  mts_stationary_list[[n]] <- mts_avg_list[[n]] %>% 
+    MTS::diffM(d=1) %>% 
+    forecast::ma(2) %>%                                             # Moving Average #2
+    ts(frequency = freq, start = c(0, 1)) 
+  
+  colnames(mts_stationary_list[[n]])<-colnames(mts_list[[n]])
+  
+}
+
+names(mts_list)<- gsub("Kymo_", "", names(Tip_Arp3_list))
+names(mts_avg_list)<- gsub("Kymo_", "", names(Tip_Arp3_list))
+names(mts_stationary_list)<- gsub("Kymo_", "", names(Tip_Arp3_list))
+```
+
+## Plotting the time series as curves
+```{r message = FALSE, warning=FALSE}
+
+selected_list <- mts_stationary_list
+plot_list.2 <- list()
+
+for (n in 1:length(selected_list ))  {
+  
+selected_list[[n]] %>% colnames()
+ 
+fig_A <- selected_list[[n]][, 1] %>%  autoplot() +
+                                     ggtitle ("Neurite length") +
+                                        geom_hline(yintercept=0, linetype="dashed", color = "black") +
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+ 
+fig_B <- selected_list[[n]][, c(2, 3)] %>%  autoplot() +
+                                      ggtitle ("Soma") +
+                                        geom_hline(yintercept=0, linetype="dashed", color = "black") +
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+fig_C <- selected_list[[n]][, c(4,5)] %>%  autoplot() +
+                                      ggtitle ("Neurite tip") +
+                                        geom_hline(yintercept=0, linetype="dashed", color = "black") +
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+fig_D <- selected_list[[n]][, c(6,7)] %>%  autoplot() +
+                                      ggtitle ("Neurite shaft") +
+                                        geom_hline(yintercept=0, linetype="dashed", color = "black") +
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+fig_E <- selected_list[[n]][, c(8,9)] %>%  autoplot() +
+                                      ggtitle ("Whole neurite") +
+                                        geom_hline(yintercept=0, linetype="dashed", color = "black") +
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+fig_F <- selected_list[[n]][, c(10,11)] %>%  autoplot() +
+                                      ggtitle ("Density at neurite") +
+                                        geom_hline(yintercept=0, linetype="dashed", color = "black") +
+                                      theme(plot.title = element_text(hjust = 0.5), 
+                                            plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+                                            panel.grid.major = element_blank(), 
+                                            panel.grid.minor = element_blank(),
+                                            axis.text=element_text(size=12, face="bold")) #for centering the text
+
+plot_list.2[[n]]<- ggpubr::ggarrange(fig_A, fig_B, fig_C, fig_D, fig_E, fig_F,
+                  labels = c("A", "B", "C", "D", "E", "F"),
+                  ncol = 3, nrow = 2,  legend="none")
+
+}
+
+names(plot_list.2)<- gsub("Arp3_", "", names(Tip_Arp3_list))
+
+```
+
+## Visualization of the selected curves
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+plot_list.2$Arp3SNAPSiR_07_02_R3D_D3D_subbg.tif
+```
+
+# cross-correlation with sum neurite length
+```{r warning=FALSE}
+
+selected_list <- mts_stationary_list
+
+ccf_sum_list<- vector(mode = "list", length = ncol(selected_list[[1]])-1)
+
+names(ccf_sum_list)<- colnames(selected_list[[1]])[-1]
+
+for (n in 2:ncol(selected_list[[1]])){
+  
+    ccfPlot <- ccf (selected_list[[1]][,1],  
+                            selected_list[[1]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                    plot=F, 
+                            lag.max=100) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf (selected_list[[m]][,1],  
+                            selected_list[[m]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                     plot=F, 
+                            lag.max=100) 
+  
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)[-1]<- gsub("Kymo_", "", names(Tip_Arp3_list))
+  ccf$lag<- c(-100:100)
+  ccf_sum_list[[n-1]] <- ccf
+}
+
+```
+
+# cross-correlation of actin-Arp3 data
+```{r warning=FALSE}
+
+selected_list <-mts_stationary_list#[ grepl("Arp3SNAPSiR_07", names(mts_stationary_list)) ]
+
+ccf_sumActArp3_list<- vector(mode = "list", length = 4)
+
+names(ccf_sumActArp3_list)<- c("soma", "sum_tip", "sum_neurite", "density")
+
+for (n in 1:4){
+  
+  pair_df<- selected_list[[1]][,grep(names(ccf_sumActArp3_list)[n],  colnames(selected_list[[1]]))] 
+  
+    ccfPlot <- ccf (pair_df[ ,1],  
+                      pair_df[ ,2], 
+                      type = "correlation", 
+                      na.action = na.pass,
+                     plot=F, 
+                      lag.max=100) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+    
+     pair_df2<- selected_list[[m]][,grep(names(ccf_sumActArp3_list)[n],  colnames(selected_list[[m]]))] 
+  
+      ccfPlot_2 <- ccf (pair_df2[ ,1],  
+                          pair_df2[ ,2], 
+                          type = "correlation", 
+                          na.action = na.pass,
+                         plot=F, 
+                          lag.max=100) 
+      
+      ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+      
+      ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)[-1]<-  names(comb_sta_list)
+  ccf$lag<- c(-100:100)
+  ccf_sumActArp3_list[[n]] <- ccf
+}
+
+```
+
+# cross-correlation with soma actin
+```{r warning=FALSE}
+
+selected_list <-mts_stationary_list#[ grepl("Arp3SNAPSiR_07", names(mts_stationary_list)) ]
+
+ccf_sumActsoma_list<- vector(mode = "list", length = ncol(selected_list[[1]]))
+
+names(ccf_sumActsoma_list)<- colnames(selected_list[[1]])
+
+for (n in 1:length(ccf_sumActsoma_list)){
+  
+    ccfPlot <- ccf (selected_list[[1]][,2],  
+                            selected_list[[1]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                     plot=F, 
+                            lag.max=100) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf (selected_list[[m]][,2],  
+                            selected_list[[m]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                     plot=F, 
+                            lag.max=100) 
+  
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)[-1]<- names(comb_sta_list)
+  ccf$lag<- c(-100:100)
+  ccf_sumActsoma_list[[n]] <- ccf
+}
+
+```
+
+# cross-correlation with soma Arp3
+```{r warning=FALSE}
+
+selected_list <- mts_stationary_list#[ grepl("Arp3SNAPSiR_07", names(mts_stationary_list)) ]
+
+ccf_sumArp3soma_list<- vector(mode = "list", length = ncol(selected_list[[1]]))
+
+names(ccf_sumArp3soma_list)<- colnames(selected_list[[1]])
+
+for (n in 1:length(ccf_sumArp3soma_list)){
+  
+    ccfPlot <- ccf (selected_list[[1]][,3],  
+                            selected_list[[1]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                     plot=F, 
+                            lag.max=100) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf (selected_list[[m]][,3],  
+                            selected_list[[m]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                     plot=F, 
+                            lag.max=100) 
+  
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)[-1]<- names(comb_sta_list)
+  ccf$lag<- c(-100:100)
+  ccf_sumArp3soma_list[[n]] <- ccf
+}
+
+```
+
+```{r}
+ccf_sum_all_list<-list(sumlength=ccf_sum_list, ActArp3= ccf_sumActArp3_list, somaActin=ccf_sumActsoma_list, somaArp3=ccf_sumArp3soma_list)
+
+```
+
+```{r}
+selected_ccf <- ccf_sum_all_list$somaArp3$soma_Myl
+selected_ccf$lag <- selected_ccf$lag*(1/freq)
+stacked_ccf_mat <- selected_ccf %>% gather(Cell, ccf, -lag) # select which CCF of measurements to show
+
+df_summary <- data.frame(Time=selected_ccf$lag, 
+                         n=tapply(stacked_ccf_mat$ccf, stacked_ccf_mat$lag, length), 
+                         mean=tapply(stacked_ccf_mat$ccf, stacked_ccf_mat$lag, mean, na.rm=TRUE))
+
+df_summary$sd <- tapply(stacked_ccf_mat$ccf, stacked_ccf_mat$lag, sd, na.rm=TRUE)
+df_summary$sem <- df_summary$sd/sqrt(df_summary$n-1)
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+ggplot(df_summary, aes(x=Time, y=mean)) +
+
+   geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="lightgrey", alpha=1)+
+     geom_line(size=1, alpha=0.8) +
+  theme_ipsum(grid = F, ticks = T)+ 
+   geom_vline(xintercept=0, linetype="dashed", color = "black")+
+  geom_hline(yintercept=0, linetype="dashed", color = "black")+
+  
+   stat_peaks(colour = "red", ignore_threshold = 0.9) +
+ stat_peaks(geom = "text", colour = "red", vjust = -0.5, ignore_threshold = 0.9) +
+  stat_valleys(colour = "blue", ignore_threshold = 0.9)+
+ stat_valleys(geom = "text", colour = "blue", angle = 45, vjust = 1.5, hjust = 1, ignore_threshold = 0.9)+
+  
+   scale_y_continuous( breaks = scales::pretty_breaks(n = 7))+
+  scale_x_continuous(expand = c(0, 0), limits = c(-400, 400), breaks = scales::pretty_breaks(n = 8)) + 
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+fig_A <- stacked_ccf_mat %>% 
+ggplot(aes(x=lag, y=ccf)) + geom_point(alpha=0.3, size=0.5) +
+   geom_line(aes(color=Cell), size=0.8)+ theme(legend.position = "none") 
+
+fig_B <-stacked_ccf_mat %>% 
+  ggplot(aes(x = lag, y = ccf, fill=Cell)) +
+    geom_area(alpha=0.5 , size=.5, colour="grey") +
+    scale_fill_viridis(discrete = T) +  scale_fill_brewer(palette = "Set2") +
+    theme_ipsum(grid = F, ticks = T)+ theme(legend.position = "none") 
+
+fig_C <-ggplot(df_summary, aes(x=Time, y=mean)) +
+   geom_line(size=1, alpha=0.8) +
+   geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="blue", alpha=0.2)
+
+ggpubr::ggarrange(fig_A,fig_B,fig_C,
+                  labels = LETTERS[1:3],
+                  ncol = 2, nrow = 2,  legend="none")
+
+```
+
+# Time-lagged cross-corrleation of outgrowth and retraction profiles
+```{r warning=FALSE}
+# constructing partial dependence (i.e., marginal effect) plots 
+library(pdp)
+theme_set(theme_bw())
+mts_avg_list[[2]][ ,c("Length.2", "Length.4")] %>%  autoplot() +
+  ylim(0, 45) +
+  ggtitle (plot_title) +
+  geom_line(aes(),size=1)  +
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.

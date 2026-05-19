@@ -1,0 +1,379 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(circular)
+library("gridExtra") 
+library("ggExtra") 
+
+# install.packages("interactions") #the analysis and exploration of statistical interactions in the context of regression. 
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "actin_fila_quant.RData",  sep = "/")
+load(file=saved_path)
+
+```
+
+```{r,  message = FALSE, warning=FALSE, fig.width=3}
+
+df<- fila_angle_polarity_updated
+
+colnames(df) %>% length()
+
+ggplot(df, aes(x=WT_TS_05)) +  #KO_TS_04_180921, KO_TS_03_180814, WT_TS_01, WT_TS_02
+ geom_histogram(aes(y=..density..), 
+                colour="black", 
+                fill="white", 
+                binwidth=15) +
+  
+ geom_density(alpha=.2, fill="#FF6666")
+
+ggplot(df, aes(x=WT_TS_05)) + 
+             geom_histogram(colour="black", 
+                            fill="white", 
+                            binwidth=15) + 
+  
+              stat_bin(aes(y=..count.., label=..count..), 
+                       geom="text",  
+                       vjust=-.5, 
+                       binwidth=15)
+```
+
+```{r warning=FALSE,  message = FALSE, warning=FALSE, fig.width=5}
+# ggplot_build(figA)$data[[1]]
+
+binned_df <- last_plot()  %>% layer_data(1) # access the plot up to the most recent +
+
+ggplot(binned_df, aes(x = x, y = ndensity)) +
+  coord_polar(theta = "x", 
+              start = 0, # Offset of starting point from 12 o'clock in radians. Offset is applied clockwise or anticlockwise depending on value of direction.
+              direction = -1) + # 1, clockwise; -1, anticlockwise
+  geom_bar(stat = "identity") +
+  #geom_text(aes(y = y+5, label = y)) +
+  theme(text = element_text(size=20),
+        axis.text.x = element_text(angle=0, hjust=5)) +
+  scale_x_continuous(limits=c(0,360), breaks=seq(0, 360, 30)) # scale_x_continuous(limits=c(-90,90),breaks=seq(-90, 90, 45))
+
+```
+
+# Batch process the angle data of all samples (df)
+```{r}
+polarity_list <- list()
+histplot_list <- list()
+roseplot_list <- list()
+binned_list<-list()
+for (n in 1:length(colnames(df))){
+  
+ histplot_list[[n]] <- ggplot(df[ ,n], aes_string(x=colnames(df)[n])) + 
+             geom_histogram(colour="black", 
+                            fill="white", 
+                            binwidth=15) + 
+  
+              stat_bin(aes(y=..count.., label=..count..), 
+                       geom="text",  
+                       vjust=-.5, 
+                       binwidth=15)
+  
+  binned_df <- last_plot()  %>% layer_data(1) 
+  binned_df$pct<- binned_df$ndensity/sum(binned_df$ndensity) 
+  binned_list[[n]] <- binned_df
+  a <- dim(binned_df)[1]%/%2
+  b <- dim(binned_df)[1]
+  
+  p1<- binned_df[1:a, ]$ndensity %>% sum() 
+  p2 <-binned_df[(b-a):b, ]$ndensity %>% sum()
+  polarity_list[[n]]<- p2/p1
+  
+  roseplot_list[[n]] <- ggplot(binned_df, aes(x = x, y = ndensity)) +
+  coord_polar(theta = "x", 
+              start = 0, # Offset of starting point from 12 o'clock in radians. Offset is applied clockwise or anticlockwise depending on value of direction.
+              direction = -1) + # 1, clockwise; -1, anticlockwise
+  geom_bar(stat = "identity") +
+  #geom_text(aes(y = y+5, label = y)) +
+  theme(text = element_text(size=20),
+        axis.text.x = element_text(angle=0, hjust=5)) +
+  scale_x_continuous(limits=c(0,360), breaks=seq(0, 360, 30)) # scale_x_continuous(limits=c(-90,90),breaks=seq(-90, 90, 45))
+  
+}
+
+names(polarity_list) <- colnames(df)
+names(histplot_list) <- colnames(df)
+names(roseplot_list) <- colnames(df)
+names(binned_list) <- colnames(df)
+```
+
+```{r}
+polarity_list %>% as.matrix() %>% clipr::write_clip()
+```
+
+```{r}
+binned_stack_list <- list()
+for (n in 1:length(binned_list)){
+  
+  binned_df<- binned_list[[n]][,c("x", "pct", "ndensity")] 
+  binned_df$names <-  binned_list[n] %>% names()
+  binned_stack_list[[n]] <-   binned_df
+}
+```
+
+```{r}
+binned_stack <- data.table::rbindlist(binned_stack_list )
+
+WT_stack <- binned_stack[1:104, ]
+WT_stack$Sample<- "WT"
+KO_stack <- binned_stack[105:277, ]
+KO_stack$Sample<- "KO"
+
+binned_stack <- rbind(WT_stack , KO_stack)
+
+WT_stack_wide <- WT_stack %>% pivot_wider(names_from = names, values_from = c("pct", "ndensity"), values_fill = 0) 
+KO_stack_wide <- KO_stack %>% pivot_wider(names_from = names, values_from = c("pct", "ndensity"), values_fill = 0)
+```
+
+```{r}
+
+KO_stack %>% 
+  ggplot(aes(x = x, y = ndensity, fill = names)) +
+    geom_area(alpha=0.5 , size=.5, colour="white") +
+    scale_fill_viridis(discrete = T) + # scale_fill_brewer(palette = "Set2") +
+    theme_ipsum(grid = F, ticks = T) 
+```
+
+```{r}
+pct_WT <-  data.frame(Angle=WT_stack_wide$x,
+                         Mean=tapply(WT_stack$pct, WT_stack$x, mean), 
+                         sd=tapply(WT_stack$pct, WT_stack$x, sd), 
+                          n=tapply(WT_stack$names, WT_stack$x, length),
+                         Sample="WT"
+                         )
+
+pct_KO <-  data.frame(Angle=KO_stack_wide$x,
+                         Mean=tapply(KO_stack$pct, KO_stack$x, mean), 
+                         sd=tapply(KO_stack$pct, KO_stack$x, sd), 
+                          n=tapply(KO_stack$names, KO_stack$x, length),
+                         Sample="KO"
+                         )
+
+pct_combined <- rbind(pct_WT, pct_KO)
+pct_combined $sem <- pct_combined $sd/sqrt(pct_combined $n-1)
+
+ndensity_WT <-  data.frame(Angle=WT_stack_wide$x,
+                         Mean=tapply(WT_stack$ndensity, WT_stack$x, mean), 
+                         sd=tapply(WT_stack$ndensity, WT_stack$x, sd), 
+                          n=tapply(WT_stack$names, WT_stack$x, length),
+                         Sample="WT"
+                         )
+
+ndensity_KO <-  data.frame(Angle=KO_stack_wide$x,
+                         Mean=tapply(KO_stack$ndensity, KO_stack$x, mean), 
+                         sd=tapply(KO_stack$ndensity, KO_stack$x, sd), 
+                          n=tapply(KO_stack$names, KO_stack$x, length),
+                         Sample="KO"
+                         )
+
+ndensity_combined <- rbind(ndensity_WT, ndensity_KO)
+ndensity_combined $sem <- ndensity_combined $sd/sqrt(ndensity_combined $n-1)
+
+```
+
+```{r, fig.width=10}
+p1<-ggplot(ndensity_combined, aes(x=Angle, y=Mean, group=Sample, colour=Sample, fill=Sample)) +
+   geom_line(size=1, alpha=1) +
+   geom_ribbon(aes(ymin=Mean-sd, ymax=Mean+sd),  alpha=1, linetype=0) + 
+  scale_x_continuous(name="Angle", limits=c(0, 360), breaks=c(0,60,120,180,240,300,360))+ 
+  theme(
+  # Hide panel borders and remove grid lines
+  panel.border = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  # Change axis line
+  #axis.line = element_line(colour = "black")
+  axis.text.x = element_text(colour="red"), axis.text.y = element_text(colour="black")
+  )+ 
+  theme_classic() +
+  scale_color_manual(values=c('red','black'))+
+  scale_fill_manual(values=c("red", "black"))
+
+p2 <- ggplot(pct_combined, aes(x=Angle, y=Mean, group=Sample, colour=Sample, fill=Sample)) +
+   geom_line(size=1, alpha=1) +
+   geom_ribbon(aes(ymin=Mean-sd, ymax=Mean+sd),  alpha=1, linetype=0) + 
+  scale_x_continuous(name="Angle", limits=c(0, 360), breaks=c(0,60,120,180,240,300,360)) +theme_classic()
+
+cowplot::plot_grid(p1, p2, ncol=2, labels=LETTERS[1:2])
+```
+```{r}
+ggsave(
+  "Angle_distribution.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+```{r}
+ndensity_combined %>% write_csv("angle_distribution.csv")
+```
+
+```{r}
+# histplot_list[[1]] 
+roseplot_list[[13]] 
+```
+
+```{r}
+ggsave(
+  "Angle_rose_KO_8.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+## Import angle distribution derived from the analyisis with OrientationJ in ImageJ
+```{r,  message = FALSE, warning=FALSE, fig.width=5}
+fig_list <- list()
+
+for (n in 1:length(tab_list)){
+fig_list[[n]] <- ggplot(tab_list[[n]], aes(x = Orientation, y = Slice1)) + 
+  geom_area(color="darkblue", fill="lightblue") +
+  
+  coord_polar(theta = "x", 
+              start = pi, # Offset of starting point from 12 o'clock in radians. 
+                         # Offset is applied clockwise or anticlockwise depending on value of direction.
+              direction = 1) + # 1, clockwise; -1, anticlockwise
+ 
+  theme(text = element_text(size=12), axis.text.x = element_text(angle=0, hjust=5)) + 
+  
+  scale_x_continuous(limits=c(-180,180), breaks=seq(-90, 90, 30),
+                   labels=c(expression(-90^degree), expression(-60^degree), expression(-30^degree), expression(0^degree), 
+                              expression(30^degree), expression(60^degree), expression(90^degree))) # scale_x_continuous(limits=c(-90,90),breaks=seq(-90, 90, 45))
+
+}
+
+ggpubr::ggarrange(fig_list[[1]], fig_list[[2]], fig_list[[3]], fig_list[[4]], fig_list[[5]], fig_list[[6]],
+                  labels = c("A", "B", "C", "D", "E", "F"),
+                  ncol = 3, nrow = 2,  legend="none")
+```
+
+```{r,  message = FALSE, warning=FALSE, fig.width=5}
+
+for (n in 1:length(tab_list)){
+  
+  df <- tab_list[[n]] %>% transform(Discrete=cut(tab_list[[n]]$Orientation, breaks =seq(-97.5, 97.5, 15), include.lowest=T))
+  
+  df2 <- aggregate(df$Slice1, by=list(Category=df$Discrete), FUN=sum)
+  
+  df2$Category <- seq(-90, 90, by = 15)
+  df2$ndensity<- df2$x/max(df2$x)
+  
+  fig_list[[n]] <- ggplot(df2, aes(x = Category, y = ndensity)) +
+  coord_polar(theta = "x", 
+              start = pi, # Offset of starting point from 12 o'clock in radians. Offset is applied clockwise or anticlockwise depending on value of direction.
+              direction = 1) + # 1, clockwise; -1, anticlockwise
+  geom_bar(stat = "identity",  fill="lightblue") +
+  #geom_text(aes(y = y+5, label = y)) +
+  theme(text = element_text(size=12),
+        axis.text.x = element_text(angle=0, hjust=5)) +
+  scale_x_continuous(limits=c(-180,180), breaks=seq(-90, 90, 30),
+                     labels=c(expression(-90^degree), expression(-60^degree), expression(-30^degree), expression(0^degree), 
+                              expression(30^degree), expression(60^degree), expression(90^degree))) # scale_x_continuous(limits=c(-90,90),breaks=seq(-90, 90, 45))
+
+}
+
+ggpubr::ggarrange(fig_list[[1]], fig_list[[2]], fig_list[[3]], fig_list[[4]], fig_list[[5]], fig_list[[6]],
+                  labels = c("A", "B", "C", "D", "E", "F"),
+                  ncol = 3, nrow = 2,  legend="none")
+
+```
+
+## Branching point dsitribution
+```{r}
+
+df <- WT_TS_01_branches
+sp <- ggplot(df, aes(x=V1, y=V2)) + geom_point() +theme_classic()
+
+sp + geom_density_2d()
+
+sp + stat_density_2d(aes(fill = ..level..), geom="polygon", contour_var = "ndensity")+
+  scale_fill_gradient(low="blue", high="red")
+```
+
+```{r,  message = FALSE, warning=FALSE, fig.width=5}
+# Marginal density plot of x (top panel)
+xdensity <- ggplot(df, aes(x=V1)) + 
+  geom_density(alpha=.5) + 
+  scale_fill_manual(values = c('#999999','#E69F00')) + 
+  theme(legend.position = "none")
+xdensity
+# Marginal density plot of y (right panel)
+ydensity <- ggplot(df, aes(y=V2)) + 
+  geom_density(alpha=.5) + 
+  scale_fill_manual(values = c('#999999','#E69F00')) + 
+  theme(legend.position = "none")
+ydensity
+
+library("gridExtra")
+grid.arrange(xdensity, blankPlot, scatterPlot, ydensity, 
+        ncol=2, nrow=2, widths=c(4, 1.4), heights=c(1.4, 4))
+```
+
+```{r,  message = FALSE, warning=FALSE, fig.width=5}
+# Scatter plot of x and y variables and color by groups 
+scatterPlot <- ggplot(df, aes(x=V1, y=V2)) + 
+  theme_classic()+
+  ylim(0, 4000)+
+  geom_point(color="green4", size=1)  + 
+  theme(legend.position=c(0,1), legend.justification=c(0,1), axis.title.x=element_blank(), axis.title.y=element_blank()) 
+# Marginal density plot of x (top panel) 
+xdensity <- ggplot(df, aes(x=V1)) + geom_density(aes(y=..ndensity..)) + theme(legend.position = "none", axis.title.x=element_blank(), axis.title.y=element_blank())
+# Marginal density plot of y (right panel)  
+ydensity <- ggplot(df, aes(y=V2)) + geom_density(aes(x=..ndensity..)) +  theme(legend.position = "none", axis.title.x=element_blank(), axis.title.y=element_blank()) 
+
+blankPlot <- ggplot()+geom_blank()+ theme_void()
+
+library("gridExtra") 
+grid.arrange(xdensity, blankPlot, scatterPlot, ydensity, ncol=2, nrow=2, widths=c(4, 1.4), heights=c(1.4, 4))
+```
+
+```{r,  message = FALSE, warning=FALSE, fig.width=3, fig.height=3}
+ggMarginal(scatterPlot, 
+           type ="densigram", 
+           #binwidth = 100, 
+           colour = "black", 
+           #fill="lightblue", 
+           xparams = list(size=0.5), 
+           yparams = list(size=0.5))
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "actin_fila_quant.RData",  sep = "/")
+save.image(file=saved_path)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 

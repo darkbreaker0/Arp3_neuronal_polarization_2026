@@ -1,0 +1,377 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+<!--
+# Fig 1i/k/l - Frequency of somatic actin waves + axonal/neurite growth in
+# unpolarized cortical slice neurons (DIV-0, E15.5).
+
+## What this file does
+
+Body has 3 analytical sections producing distinct outputs:
+
+1. **Wave count** (lines 76-145): reads per-cell wave-count CSVs;
+   plots wave_count.pdf with optional t-test. **→ Fig 1i** (line 84
+   of docx: "Frequency of somatic actin waves in unpolarized neurons
+   of E15.5 cortical slice. N = 26 neurons from 3 experiments.").
+2. **Axonal growth** (lines 152-230): reads axonal growth CSVs +
+   t-test. Feeds Fig 1k (extension and retraction duration of axon
+   and minor neurites in E15.5 cortical slice culture. N = 28
+   unpolarized neurons and 20 axons from 3 experiments.
+   Kruskal-Wallis test).
+3. **Neurite growth** (lines 239+): same for non-axon neurites.
+   Feeds Fig 1l (extension and retraction velocities of axon and
+   minor neurites).
+
+## Manuscript panel
+
+ED Fig 1g is "Period of neurite growth oscillation determined by Lomb-Scargle
+periodogram analysis" (line 299 of docx). The Lomb-Scargle code for ED Fig 1g
+is on a separate hard drive and will be copied in later — NOT in this file.
+This file does wave **count**, not period.
+
+Source Data sheet: ``Fig 1i``.
+
+## Original G:\ source
+
+G:/Figure 1_coordination/Fig. 1h/Lifeact_2min/wave_count.Rmd
+-->
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(ggpubr)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+library(ggpubr)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(Path_1)
+saved_path <- paste(Path_1, "wave.RData",  sep = "/")
+load(file=saved_path)
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+```
+
+# save environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "wave.RData",  sep = "/")
+save.image(file=saved_path)
+```
+
+# read data of wave count
+```{r message=FALSE, warning=FALSE}
+library(readr)  # For faster CSV reading
+library(dplyr)  # For easy data manipulation (optional)
+
+# Function to import all CSVs from a folder and its subfolders
+import_csv_files <- function(directory) {
+  # Get list of all CSV files in the folder and subfolders
+  csv_files <- list.files(directory, pattern = "wave.*\\.csv$", full.names = TRUE, recursive = TRUE)
+  
+  # Read each file into a list of data frames
+  data_list <- lapply(csv_files, read_csv)
+  
+  # Name the list elements with the corresponding file names (without the full path)
+  names(data_list) <- dirname(csv_files) %>% basename()
+  
+  return(data_list)
+}
+
+# Set the parent directory containing CSV files
+parent_directory <- Path_1 
+
+# Import all CSV files
+csv_wave_list <- import_csv_files(parent_directory)
+```
+
+```{r}
+data_wave <- bind_rows(csv_wave_list, .id = "exp")%>% as.data.table()
+
+data_wave$cell <- data_wave$Label %>% str_remove("\\.tif:.*")
+
+df_summary <- data_wave %>% group_by(cell) %>% rstatix::get_summary_stats(Slice)
+
+df_summary$wave_hour <- df_summary$n/((df_summary$max - df_summary$min + 1)*2) * 60
+
+mean(df_summary$wave_hour)
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=8}
+library(colorspace)
+df_summary  %>% 
+ggplot(aes(x=variable, y=wave_hour, fill = variable)) +
+  #geom_point()
+  theme_classic()+
+  geom_violin(trim=FALSE, kernel ="gaussian", adjust=1)+
+  geom_boxplot(width=0.4, fill="white",color="black",alpha=1, outliers = F) +
+  geom_jitter(alpha=1, width=0.1) + 
+ # scale_color_continuous_sequential(palette = "Heat", begin = 0.3, end = 1)+ 
+ # scale_y_continuous(expand = c(0, 0), limits = c(0, 1.5), breaks = scales::pretty_breaks(n = 10))+ 
+ # stat_compare_means(comparisons = my_comparisons, test = "t.test", paired=F)+
+  theme_ipsum(grid = F, ticks = T) +
+ theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+#plotly::ggplotly(p)
+```
+
+```{r}
+ggsave(
+  "wave_count.pdf",
+  plot = last_plot(),
+  device = "pdf")
+#dev.off()
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "wave.RData",  sep = "/")
+save.image(file=saved_path)
+```
+
+# read data of axonal growth
+```{r message=FALSE, warning=FALSE}
+library(readr)  # For faster CSV reading
+library(dplyr)  # For easy data manipulation (optional)
+
+# Function to import all CSVs from a folder and its subfolders
+import_csv_files <- function(directory) {
+  # Get list of all CSV files in the folder and subfolders
+  csv_files <- list.files(directory, pattern = "AxonKymo.*\\.csv$", full.names = TRUE, recursive = TRUE)
+  
+  # Read each file into a list of data frames
+  data_list <- lapply(csv_files, read_csv)
+  
+  # Name the list elements with the corresponding file names (without the full path)
+  names(data_list) <- dirname(csv_files) %>% basename()
+  
+  return(data_list)
+}
+
+# Set the parent directory containing CSV files
+parent_directory <- Path_1 
+
+# Import all CSV files
+csv_AxonKymo_list <- import_csv_files(parent_directory)
+```
+
+```{r}
+data_AxonKymo <- bind_rows(csv_AxonKymo_list, .id = "exp")%>% as.data.table()
+
+data_AxonKymo$exp <- data_AxonKymo$Label %>% str_extract("(?<=Kymo_).*?(?=\\.tif_)")
+data_AxonKymo$axon <- data_AxonKymo$Label %>% str_extract("(?<=Kymo_).*?(?=\\.tif:)")
+
+data_AxonKymo$distance <- data_AxonKymo$Width * 0.4324302
+data_AxonKymo$time <-  data_AxonKymo$Height * 2
+data_AxonKymo$rate <- data_AxonKymo$distance/data_AxonKymo$time
+
+data_AxonKymo$direction<- "extension"
+data_AxonKymo[Angle < -90]$direction <- "retraction"
+```
+
+```{r}
+outliers <- data_AxonKymo %>% 
+  group_by(direction) %>% 
+ rstatix::identify_outliers(time) 
+
+data_AxonKymo <- data_AxonKymo [! (Label %in% outliers$Label) ]
+
+outliers <- data_AxonKymo %>% 
+  group_by(direction) %>% 
+ rstatix::identify_outliers(rate) 
+
+data_AxonKymo <- data_AxonKymo [! (Label %in% outliers$Label) ]
+
+```
+
+```{r}
+df_summary_AxonKymo <- data_AxonKymo %>% group_by(axon, direction) %>% rstatix::get_summary_stats(rate)
+df_summary_AxonKymo$axon_neurite <- "axon"
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=8}
+my_comparisons <- list(c("extension", "retraction"))
+
+library(colorspace)
+df_summary_AxonKymo %>% 
+ggplot(aes(x=direction, y=mean, fill = direction)) +
+  #geom_point()
+  theme_classic()+
+  geom_violin(trim=FALSE, kernel ="gaussian", adjust=1)+
+  geom_boxplot(width=0.2, fill="white",color="black",alpha=1, outliers = F) +
+  geom_jitter(alpha=1, width=0.05) + 
+ # scale_color_continuous_sequential(palette = "Heat", begin = 0.3, end = 1)+ 
+ scale_y_continuous(expand = c(0, 0), 
+                   #limits = c(0, 250), 
+                    breaks = scales::pretty_breaks(n = 5))+ 
+ stat_compare_means(comparisons = my_comparisons, test = "t.test", paired=F)+
+  theme_ipsum(grid = F, ticks = T) +
+ theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+#plotly::ggplotly(p)
+```
+# read data of neurite growth
+```{r message=FALSE, warning=FALSE}
+library(readr)  # For faster CSV reading
+library(dplyr)  # For easy data manipulation (optional)
+
+# Function to import all CSVs from a folder and its subfolders
+import_csv_files <- function(directory) {
+  # Get list of all CSV files in the folder and subfolders
+  csv_files <- list.files(directory, pattern = "NeuriteKymo.*\\.csv$", full.names = TRUE, recursive = TRUE)
+  
+  # Read each file into a list of data frames
+  data_list <- lapply(csv_files, read_csv)
+  
+  # Name the list elements with the corresponding file names (without the full path)
+  names(data_list) <- dirname(csv_files) %>% basename()
+  
+  return(data_list)
+}
+
+# Set the parent directory containing CSV files
+parent_directory <- Path_1 
+
+# Import all CSV files
+csv_NeuriteKymo_list <- import_csv_files(parent_directory)
+```
+
+```{r}
+data_NeuriteKymo <- bind_rows(csv_NeuriteKymo_list, .id = "exp")%>% as.data.table()
+
+data_NeuriteKymo$Cell <- data_NeuriteKymo$Label %>% str_extract("(?<=Kymo_).*?(?=\\.tif_)")
+data_NeuriteKymo$Neurite <- data_NeuriteKymo$Label %>% str_extract("(?<=Kymo_).*?(?=\\.tif:)")
+
+data_NeuriteKymo$distance <- data_NeuriteKymo$Width * 0.4324302
+data_NeuriteKymo$time <-  data_NeuriteKymo$Height * 2
+data_NeuriteKymo$rate <- data_NeuriteKymo$distance/data_NeuriteKymo$time
+
+data_NeuriteKymo$direction<- "extension"
+data_NeuriteKymo[Angle < -90]$direction <- "retraction"
+```
+
+```{r}
+outliers <- data_NeuriteKymo %>% 
+  group_by(direction, Cell) %>% 
+ rstatix::identify_outliers(rate) 
+
+data_NeuriteKymo_2 <- data_NeuriteKymo [! (Label %in% outliers$Label) ]
+
+outliers <- data_NeuriteKymo_2 %>% 
+  group_by(direction, Cell) %>% 
+ rstatix::identify_outliers(time) 
+
+data_NeuriteKymo_2 <- data_NeuriteKymo_2 [! (Label %in% outliers$Label) ]
+
+```
+
+```{r}
+df_summary_NeuriteKymo <- data_NeuriteKymo %>% group_by(Cell, direction) %>% rstatix::get_summary_stats(rate)
+df_summary_NeuriteKymo$axon_neurite <- "neurite"
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=8}
+my_comparisons <- list(c("extension", "retraction"))
+
+library(colorspace)
+
+df_summary_NeuriteKymo %>% 
+ggplot(aes(x=direction, y=mean, fill = direction)) +
+  #geom_point()
+  theme_classic()+
+  geom_violin(trim=FALSE, kernel ="gaussian", adjust=1)+
+  geom_boxplot(width=0.2, fill="white",color="black",alpha=1, outliers = F) +
+  geom_jitter(alpha=1, width=0.05) + 
+ # scale_color_continuous_sequential(palette = "Heat", begin = 0.3, end = 1)+ 
+ scale_y_continuous(expand = c(0, 0), 
+                    #limits = c(0, 100), 
+                    breaks = scales::pretty_breaks(n = 5))+ 
+ stat_compare_means(comparisons = my_comparisons, test = "t.test", paired=F)+
+  theme_ipsum(grid = F, ticks = T) +
+ theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+#plotly::ggplotly(p)
+```
+
+```{r}
+colnames(df_summary_AxonKymo)[[1]] <- "Cell"
+
+df_summary_AllKymo <- rbind(df_summary_AxonKymo, df_summary_NeuriteKymo)
+df_summary_AllKymo$group <- paste(df_summary_AllKymo$axon_neurite, df_summary_AllKymo$direction, sep = "_")
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=8}
+my_comparisons <- list(c("axon_extension", "axon_retraction"), c("neurite_extension", "neurite_retraction"), c("axon_extension", "neurite_extension"), c("axon_retraction", "neurite_retraction"))
+
+library(colorspace)
+
+df_summary_AllKymo %>% 
+ggplot(aes(x=group, y=mean, fill = direction)) +
+  #geom_point()
+  theme_classic()+
+  geom_violin(trim=FALSE, kernel ="gaussian", adjust=1)+
+  geom_boxplot(width=0.2, fill="white",color="black",alpha=1, outliers = F) +
+  geom_jitter(alpha=1, width=0.05) + 
+ # scale_color_continuous_sequential(palette = "Heat", begin = 0.3, end = 1)+ 
+ scale_y_continuous(expand = c(0, 0), 
+                    limits = c(0, 2.5), 
+                    breaks = scales::pretty_breaks(n = 5))+ 
+ stat_compare_means(comparisons = my_comparisons, test = "t.test", paired=F)+
+  theme_ipsum(grid = F, ticks = T) +
+ theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+#plotly::ggplotly(p)
+```
+
+```{r}
+ggsave(
+  "axon_neurite_rate.pdf",
+  plot = last_plot(),
+  device = "pdf")
+#dev.off()
+```

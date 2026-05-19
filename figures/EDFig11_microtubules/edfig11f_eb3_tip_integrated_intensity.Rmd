@@ -1,0 +1,309 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r message=FALSE}
+
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(circular)
+library("gridExtra") 
+library("ggExtra") 
+library("ggpubr")
+```
+
+
+
+```{r Load RData, message=FALSE, warning=FALSE}
+dir  <- dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(dir)
+saved_path <- paste(dir, "Tip_EB3.RData",  sep = "/")
+load(file=saved_path)
+
+#save.image(file=saved_path)
+
+
+```
+
+
+```{r message=FALSE}
+Path_1<- dir
+
+Tra_file<- list.files(Path_1,
+                      pattern = "Tip_EB3(.*)csv$",
+                     recursive = TRUE,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+
+
+#dirname(Path_1)
+
+Tra_list<- list()
+
+
+for (n in 1:length(Tra_file)) 
+{
+  Tra_list[[n]] <- readr::read_delim(Tra_file[n], ",", escape_double = FALSE, col_names = T, trim_ws = TRUE) %>% as.data.frame()
+
+  names(Tra_list)[n]<- Tra_file[n] %>% basename()
+
+}
+
+names(Tra_list)<- dirname(Tra_file)
+```
+
+
+```{r message=FALSE}
+#Tra_list[[9]]$Condition<-"WO" 
+
+Tra_list[[8]]$Label
+
+Tra_list[[8]]$Label <- gsub("WT_CK666_LifeACtmScar_EB3SNAPSiR_01", "Cell", Tra_list[[8]]$Label)
+
+Tra_list[[8]]$Label <- gsub("_R3D.*","",Tra_list[[8]]$Label)
+```
+
+```{r}
+
+tab_list<- list()
+
+for (n in 1:length(Tra_list)) 
+{
+tab <- Tra_list[[n]]
+
+tab1 <- aggregate(tab[,3:7], list(tab$Label), mean)
+tab1$Condition<- tab$Condition[1]
+tab1$Batch<- tab$Batch[1]
+tab1$Label<-str_c(tab1$Group.1, "_", tab1$Batch)
+tab_list[[n]] <- tab1
+  
+}
+
+```
+
+
+```{r message=FALSE}
+tab_all <- tab_list[[1]]
+
+for (n in 2:length(tab_list)) 
+{
+  tab_all <- rbind(tab_all, tab_list[[n]]) %>% as.data.frame()
+  
+}
+```
+
+
+```{r message=FALSE}
+
+df_summary <- tab_all %>% group_by(Condition) %>% rstatix::get_summary_stats(IntDen)
+```
+
+
+
+# Remove outliers
+```{r}
+tab_Before<- tab_all %>% subset(tab_all$Condition=="Before")
+outliers_Before <-  boxplot(tab_Before$IntDen, plot=FALSE)$out
+
+tab_CK666<- tab_all %>% subset(tab_all$Condition=="CK666")
+outliers_CK666 <-  boxplot(tab_CK666$IntDen, plot=FALSE)$out
+
+tab_WO<- tab_all %>% subset(tab_all$Condition=="WO")
+outliers_WO <-  boxplot(tab_WO$IntDen, plot=FALSE)$out
+
+tab_Before <- tab_Before[-which(tab_Before$IntDen %in% outliers_Before),]
+tab_CK666 <- tab_CK666[-which(tab_CK666$IntDen %in% outliers_CK666),]
+tab_WO <- tab_WO[-which(tab_WO$IntDen %in% outliers_WO),]
+
+tab_OL <- rbind(tab_Before, tab_CK666, tab_WO)
+
+tab_OL$Condition
+```
+
+
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+#ylim1 = boxplot.stats(frame_freq$Freq)$stats[c(1, 5)] #+ coord_cartesian(ylim = ylim1*1.05) 
+my_comparisons <- list( c("Before", "CK666"), c("CK666", "WO"), c("Before", "WO") )
+
+ggplot(tab_all, aes(x=Condition, y=IntDen, fill=Condition)) + scale_fill_brewer(palette="Dark2") + theme_classic()+
+  geom_violin(trim=F, kernel ="gaussian", adjust=1.6) +
+  geom_boxplot(width=0.1, fill="white")+
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 35000), breaks = scales::pretty_breaks(n = 5)) +
+  stat_compare_means(comparisons = my_comparisons) # Add pairwise comparisons p-value
+  #stat_compare_IntDens(label.y = 22)     # Add global p-value 
+```
+
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+library(ggpubr)
+
+my_comparisons <- list( c("Before", "CK666"), c("CK666", "WO"), c("Before", "WO") )
+
+ggplot(tab_all, aes(x=Condition, y=IntDen, fill=Condition)) + 
+  geom_violin(trim=FALSE, 
+              kernel ="gaussian", 
+              adjust=1.3)+
+  #geom_boxplot(width=2, fill="white")  +
+  geom_point(aes(fill=Condition, group=Label), position = position_dodge(0.2))+
+  geom_line(aes(group=Label), position = position_dodge(0.2)) +
+  
+  
+  scale_y_continuous( expand = c(0, 0), limits = c(0, 35000), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  stat_compare_means(comparisons = my_comparisons, paired=F, method="wilcox.test")+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+
+
+# plotly::ggplotly(p)
+```
+```{r message = FALSE, warning=FALSE, fig.width=10}
+library(ggpubr)
+tab_all_2<- tab_all%>% subset(tab_all$Condition != "WO")
+my_comparisons <- list( c("Before", "CK666") )
+
+ggplot(tab_all_2, aes(x=Condition, y=IntDen, fill=Condition)) + 
+  geom_violin(trim=FALSE, 
+              kernel ="gaussian", 
+              adjust=1.3)+
+  #geom_boxplot(width=2, fill="white")  +
+  geom_point(aes(fill=Condition, group=Label), position = position_dodge(0.2))+
+  geom_line(aes(group=Label), position = position_dodge(0.2)) +
+  
+  
+  scale_y_continuous( expand = c(0, 0), limits = c(0, 35000), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  stat_compare_means(comparisons = my_comparisons, paired=F, method="wilcox.test")+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+
+
+# plotly::ggplotly(p)
+```
+
+```{r}
+ggsave(
+  "TipEB3_CK666.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r}
+
+ggplot(df_summary, aes(x=Condition, y=mean)) + 
+  geom_bar(stat="identity", position=position_dodge()) +
+         geom_errorbar(aes(ymin=mean-sd, ymax=mean+sd), width=.2,position=position_dodge(.9)) + 
+          scale_fill_brewer(palette="Paired") + theme_minimal()
+
+
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+
+save.image(file=saved_path)
+```
+
+```{r}
+# rename dataframe names within the dataframe list 
+
+subfolder_name_list <- list.files(path =Path_1, full.names = F, recursive = FALSE)
+
+names(df_1)[2:(length(df_list)+1)] <- subfolder_name_list[ grepl("R3D", subfolder_name_list) ]
+```
+
+
+```{r}
+Path_1= "G:/EB3"
+Rdata_list<- list.files(Path_1,
+                      pattern = "df_list",
+                     recursive = TRUE,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+```
+
+
+```{r}
+df_1 <- t(df_1) %>% as.data.frame()
+col<-df_1[1, ]
+colnames(df_1) <- col
+df_1<-df_1[-1, ]
+
+
+df_1[]<- lapply(df_1, as.numeric)
+
+df_1$X1<- rownames(df_1)
+df_1$Arp3<-"WT"
+df_1$Path<- dirname(Path_1)
+
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save(df_list, df_1, csv_list, Path_1, file = saved_path)
+
+```
+
+```{r}
+data_summary <- function(x) {
+   m <- IntDen(x)
+   ymin <- m-sd(x)
+   ymax <- m+sd(x)
+   return(c(y=m,ymin=ymin,ymax=ymax))
+}
+
+graph_list<- list()
+
+graph_list[[1]]<- ggplot(df_1, aes(x= Arp3, y=growth_speed_median)) 
+graph_list[[2]]<- ggplot(df_1, aes(x=Arp3, y=growth_lifetime_IntDen)) 
+graph_list[[3]]<- ggplot(df_1, aes(x= Arp3, y=growth_length_IntDen))
+```
+
+
+```{r}
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save(df_list, df_1, csv_list, Path_1, graph_list, file = saved_path)
+csvPath<- paste(Path_1, "df_1.csv",  sep = "/")
+write.csv(df_1[ ,c(4,7,10)], file=csvPath)
+```
+
+
+```{r, fig.width=2, fig.height=4, echo=FALSE}
+graph_list[[1]] + 
+  geom_violin(trim=FALSE, bw=1)+ 
+stat_summary(fun.data=data_summary)+ 
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=1, binwidth = 0.2)
+
+graph_list[[1]]+
+  geom_violin(trim=FALSE, fill='#A4A4A4', color="darkred", bw=1)+
+  geom_boxplot(width=0.5) + theme_minimal()
+```

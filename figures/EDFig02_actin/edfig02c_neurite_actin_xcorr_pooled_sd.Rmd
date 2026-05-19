@@ -1,0 +1,46 @@
+---
+title: "ED Fig 2c - pooled-replicate neurite-actin xcorr (SD envelope)"
+output: html_notebook
+---
+
+<!--
+================================================================================
+  WRAPPER for ED Fig 2c (pooled-replicate CCF with SD envelope).
+================================================================================
+  This file's role: place the canonical analysis in the EDFig02_actin
+  directory so `Path_1 <- dirname(...)` resolves here, picking up the
+  Fig 2e dataset's per-cell CSV inputs.
+
+  Includes the canonical template:
+      ../../templates/pooled_replicate_ccf.Rmd
+
+  Manuscript panel:
+      ED Fig 2c "Cross-correlation of temporal profiles of DIV-1 and DIV-2
+                 unpolarized neurons. Same in Fig. 2e but with SD. Values
+                 plotted as mean +/- SD. N = 135 neurons, 5 experiments."
+
+      (Also feeds the secondary visualisation behind ED Fig 2e/f for the
+       replicate-pooling alternative summary.)
+
+  Original G:\ source:
+      G:/Figure 2_actin wave/Fig. 2e/R_scripts/Neurite activity corr_comb.Rmd
+      (_comb suffix = combined-replicate, i.e. pooled).
+
+  Sibling that includes the same template (different data directory):
+      figures/EDFig01_coordination/edfig01be_2d_culture_neurite_freq_and_xcorr_pooled.Rmd
+      (ED Fig 1b; 2D-culture pooled-replicate CCF, N = 101).
+
+  What is unique vs the fig02e canonical
+      CCF algorithm is identical to `fig02e_neurite_actin_xcorr_culture.Rmd`.
+      The difference is the post-CCF aggregation: groups CCF curves by
+      experimental replicate and reports mean +/- SD envelope across
+      replicates, rather than mean +/- SD across individual neurons.
+
+  Refactored 2026-05-12: prior 2344-line wrapper had a body byte-identical
+  to its sibling; both moved to a shared canonical template.
+
+  Essentiality: Essential.
+-->
+
+```{r child = "../../templates/pooled_replicate_ccf.Rmd"}
+```

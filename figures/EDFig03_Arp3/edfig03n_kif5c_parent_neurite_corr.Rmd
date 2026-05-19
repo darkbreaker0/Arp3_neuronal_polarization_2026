@@ -1,0 +1,1670 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+#library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(Path_1)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+load(file=saved_path)
+```
+
+# save environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+```
+
+## Read .csv files
+```{r}
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+subfolder_list  <- subfolder_list [ grepl("Kymo_", subfolder_list) ]
+```
+
+```{r}
+pat_list <- list(Tip_actin="^Actin_tip(.*)csv$",  Neurite_actin= "^Actin_neurite(.*)csv$")
+```
+
+# Neurite length
+```{r}
+length_list<- list()
+freq <- 0.5 # set frequency (1/interval)
+pixel <- 0.325 # set pixel size
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list))  
+{
+  csv_list <- list.files(subfolder_list[n],pattern = "^Tip_actin_(.*)csv$", 
+                     recursive = T,  #list of subfolders and files within the subfolders
+                     include.dirs = T, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  df <- do.call("cbind", lapply(csv_list, read.csv, header = TRUE))
+  df <-df[, grep("Tip.point",  colnames(df)), drop = FALSE] %>% as.data.table()
+  df <- mapply(`*`,df, pixel)
+  df <-pracma::hampel(df, k=3)$y # remove jumping spikes
+  colnames(df)<- paste("Length", seq( from = 1, to = ncol(df)  ),  sep = ".")
+  
+  length_list[[n]] <-df
+
+}
+
+subfolder_name_list <- subfolder_list %>% fs::path_file()
+names(length_list) <- gsub("Kymo_", "", subfolder_name_list)
+
+length_list$DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif
+```
+
+# DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif and DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif are of the same neuron
+```{r}
+colnames(length_list$DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif ) <- c("Length.5")
+length_list$DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif <-  cbind(length_list$DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif , length_list$DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif )
+length_list <- length_list[-88]
+```
+
+# Actin intensity at neurite tip 
+```{r}
+Tip_actin_list<- list()
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list))  
+{
+  csv_list <- list.files(subfolder_list[n],pattern = "^Tip_actin(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  df <- do.call("cbind", lapply(csv_list, read.csv, header = TRUE))
+  
+  df <-df[, grep("Integerated.intensity",  colnames(df)), drop = FALSE] %>% as.data.table()
+  df <- mapply(`*`,df, 1/10000)
+  #df <-pracma::hampel(df, k=5)$y # remove jumping spikes
+  
+  colnames(df)<- paste("Tip_actin", seq( from = 1, to = dim(df)[2] ),  sep = ".")
+  Tip_actin_list[[n]]<- df
+
+}
+names(Tip_actin_list) <- names(length_list)
+```
+
+# Kif5 intensity at neurite tip 
+```{r}
+Tip_Kif5_list<- list()
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list))  
+{
+  csv_list <- list.files(subfolder_list[n],pattern = "^Tip_Kif5(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  df <- do.call("cbind", lapply(csv_list, read.csv, header = TRUE))
+  
+  df <- df[, grep("Integerated.intensity",  colnames(df)), drop = FALSE] %>% as.data.table()
+  df <- mapply(`*`,df, 1/10000)
+  #df <-pracma::hampel(df, k=5)$y # remove jumping spikes
+  
+  colnames(df)<- paste("Tip_Kif5", seq( from = 1, to = dim(df)[2] ),  sep = ".")
+  Tip_Kif5_list[[n]]<- df
+
+}
+names(Tip_Kif5_list) <- names(length_list)
+```
+
+# DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif and DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif are of the same neuron
+```{r}
+colnames(Tip_actin_list$DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif ) <- c("Tip_actin.5")
+Tip_actin_list$DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif <-  cbind(Tip_actin_list$DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif , Tip_actin_list$DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif )
+Tip_actin_list <- Tip_actin_list[-88]
+
+colnames(Tip_Kif5_list$DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif ) <- c("Tip_Kif5.5")
+Tip_Kif5_list$DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif <-  cbind(Tip_Kif5_list$DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif , Tip_Kif5_list$DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif )
+Tip_Kif5_list <- Tip_Kif5_list[-88]
+```
+
+# Actin intensity at whole neurite
+```{r}
+
+Neurite_actin_list<- list()
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list))  
+{
+  csv_list <- list.files(subfolder_list[n],pattern = "^Neurite_actin(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  df <- do.call("cbind", lapply(csv_list, read.csv, header = TRUE))
+  
+  df <-df[, grep("Integerated.intensity",  colnames(df)), drop = FALSE] %>% as.data.table()
+  df <- mapply(`*`,df, 1/10000)
+  #df <-pracma::hampel(df, k=5)$y # remove jumping spikes
+  colnames(df)<- paste("Neurite_actin", seq( from = 1, to = dim(df)[2] ),  sep = ".")
+  
+  Neurite_actin_list[[n]]<- df
+ 
+}
+
+names(Neurite_actin_list) <- gsub("Kymo_", "", subfolder_name_list)
+```
+
+# Kif5 intensity at whole neurite
+```{r}
+
+Neurite_Kif5_list<- list()
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list))  
+{
+  csv_list <- list.files(subfolder_list[n],pattern = "^Neurite_Kif5(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  df <- do.call("cbind", lapply(csv_list, read.csv, header = TRUE))
+  
+  df <-df[, grep("Integerated.intensity",  colnames(df)), drop = FALSE] %>% as.data.table()
+  df <- mapply(`*`,df, 1/10000)
+  #df <-pracma::hampel(df, k=5)$y # remove jumping spikes
+  colnames(df)<- paste("Neurite_Kif5", seq( from = 1, to = dim(df)[2] ),  sep = ".")
+  
+  Neurite_Kif5_list[[n]]<- df
+ 
+}
+
+names(Neurite_Kif5_list) <- gsub("Kymo_", "", subfolder_name_list)
+```
+
+# DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif and DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif are of the same neuron
+```{r}
+colnames(Neurite_actin_list$DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif ) <- c("Neurite_actin.5")
+Neurite_actin_list$DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif <-  cbind(Neurite_actin_list$DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif , Neurite_actin_list$DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif )
+Neurite_actin_list <- Neurite_actin_list[-88]
+
+colnames(Neurite_Kif5_list$DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif ) <- c("Neurite_Kif5.5")
+Neurite_Kif5_list$DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif <-  cbind(Neurite_Kif5_list$DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif , Neurite_Kif5_list$DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif )
+Neurite_Kif5_list <- Neurite_Kif5_list[-88]
+```
+
+# Actin density of the whole neurite ((tip + neurite shaft)/neurite length))
+```{r}
+Density_actin_list<- list()
+
+for (n in 1:length(length_list))  {
+
+  df <- (Neurite_actin_list[[n]])/(length_list[[n]])
+  colnames(df)<- paste("density_actin", seq( from = 1, to = ncol(df) ),  sep = ".")
+  df[sapply(df, is.infinite)] <- NA
+  Density_actin_list[[n]]<- df
+  
+}
+
+names(Density_actin_list) <- names(length_list)
+```
+
+# Kif5 density of the whole neurite ((tip + neurite shaft)/neurite length))
+```{r}
+Density_Kif5_list<- list()
+
+for (n in 1:length(length_list))  {
+
+  df <- (Neurite_Kif5_list[[n]])/(length_list[[n]])
+  colnames(df)<- paste("density_Kif5", seq( from = 1, to = ncol(df) ),  sep = ".")
+  df[sapply(df, is.infinite)] <- NA
+  Density_Kif5_list[[n]]<- df
+  
+}
+
+names(Density_Kif5_list) <- names(length_list)
+```
+
+# WT_DIV4_LAmScar_01Ctl_23paBlebb02_07_R3D.dv and WT_DIV4_LAmScar_01Ctl_23paBlebb02_06_R3D.dv are of the same neuron
+```{r}
+colnames(Density_actin_list$WT_DIV4_LAmScar_01Ctl_23paBlebb02_06_R3D.dv) <- c("density_actin.7", "density_actin.8")
+Density_actin_list$WT_DIV4_LAmScar_01Ctl_23paBlebb02_07_R3D.dv <-  cbind(Density_actin_list$WT_DIV4_LAmScar_01Ctl_23paBlebb02_07_R3D.dv, Density_actin_list$WT_DIV4_LAmScar_01Ctl_23paBlebb02_06_R3D.dv)
+Density_actin_list <- Density_actin_list[-117]
+```
+
+# DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif and DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif are of the same neuron
+```{r}
+colnames(Density_actin_list$DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif ) <- c("density_actin.5")
+Density_actin_list$DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif <-  cbind(Density_actin_list$DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif , Density_actin_list$DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif )
+Density_actin_list <- Density_actin_list[-88]
+
+colnames(Density_Kif5_list$DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif ) <- c("density_Kif5.5")
+Density_Kif5_list$DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif <-  cbind(Density_Kif5_list$DIV2_LifeactmSC_Kif5mNG_03_36_R3D_D3D.dv_binned.tif , Density_Kif5_list$DIV2_LifeactmSC_Kif5mNG_03_37_R3D_D3D.dv_binned.tif )
+Density_Kif5_list <- Density_Kif5_list[-88]
+```
+
+```{r}
+all_list <- list(length = length_list, 
+                 tip_actin = Tip_actin_list,  
+                 neurite_actin = Neurite_actin_list, 
+                 Density_actin = Density_actin_list, 
+                 tip_Kif5 = Tip_Kif5_list,  
+                # tip_Kif5_frac = Tip_Kif5_frac_list, 
+                 neurite_Kif5 = Neurite_Kif5_list, 
+                 Density_Kif5 = Density_Kif5_list)
+
+```
+
+# filter for initial neurite length > 50 um
+```{r}
+length_50_list <- list()
+tip_actin_50_list <- list()
+neurite_actin_50_list <- list()
+density_actin_50_list <- list()
+
+tip_Kif5_50_list <- list()
+neurite_Kif5_50_list <- list()
+density_Kif5_50_list <- list()
+
+selected_list <- length_list 
+
+for (n in 1:length(selected_list)){
+  
+ df <- length_list[[n]] %>% as.data.table()
+ selected_columns <- names(df)[df[1, ] > 50]
+ length_50_list[[n]] <- df[,..selected_columns]
+ 
+ df <- Tip_actin_list[[n]] %>% as.data.table()
+ modified_vector <- gsub("Length", "Tip_actin",  selected_columns)
+ tip_actin_50_list [[n]] <- df[, ..modified_vector]
+ 
+ df <- Neurite_actin_list[[n]] %>% as.data.table()
+ modified_vector <- gsub("Length", "Neurite_actin",  selected_columns)
+ neurite_actin_50_list[[n]] <- df[,..modified_vector]
+ 
+ df <- Density_actin_list[[n]] %>% as.data.table()
+ modified_vector <- gsub("Length", "density_actin",  selected_columns)
+ density_actin_50_list[[n]] <- df[,..modified_vector]
+ 
+  df <- Tip_Kif5_list[[n]] %>% as.data.table()
+ modified_vector <- gsub("Length", "Tip_Kif5",  selected_columns)
+ tip_Kif5_50_list [[n]] <- df[, ..modified_vector]
+ 
+ df <- Neurite_Kif5_list[[n]] %>% as.data.table()
+ modified_vector <- gsub("Length", "Neurite_Kif5",  selected_columns)
+ neurite_Kif5_50_list[[n]] <- df[,..modified_vector]
+ 
+ df <- Density_Kif5_list[[n]] %>% as.data.table()
+ modified_vector <- gsub("Length", "density_Kif5",  selected_columns)
+ density_Kif5_50_list[[n]] <- df[,..modified_vector]
+ 
+}
+ 
+names(length_50_list) <- names(length_list) 
+names(tip_actin_50_list) <- names(length_list) 
+names(neurite_actin_50_list) <- names(length_list) 
+names(density_actin_50_list) <- names(length_list) 
+
+names(tip_Kif5_50_list) <- names(length_list) 
+names(neurite_Kif5_50_list) <- names(length_list) 
+names(density_Kif5_50_list) <- names(length_list) 
+```
+
+```{r}
+length_50_list %>% discard(~ nrow(.x) == 0) -> length_50_list
+tip_actin_50_list %>% discard(~ nrow(.x) == 0) -> tip_actin_50_list
+neurite_actin_50_list %>% discard(~ nrow(.x) == 0) -> neurite_actin_50_list
+density_actin_50_list %>% discard(~ nrow(.x) == 0) -> density_actin_50_list
+
+tip_Kif5_50_list %>% discard(~ nrow(.x) == 0) -> tip_Kif5_50_list
+neurite_Kif5_50_list %>% discard(~ nrow(.x) == 0) -> neurite_Kif5_50_list
+density_Kif5_50_list %>% discard(~ nrow(.x) == 0) -> density_Kif5_50_list
+
+all_50_list <- list(length = length_50_list, 
+                 tip_actin = tip_actin_50_list,  
+                 neurite_actin = neurite_actin_50_list, 
+                 Density_actin = density_actin_50_list, 
+                 tip_Kif5 = tip_Kif5_50_list,  
+                 neurite_Kif5 = neurite_Kif5_50_list, 
+                 Density_Kif5 = density_Kif5_50_list
+                 
+                 )
+```
+
+# Soma actin
+```{r}
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+soma_list  <- subfolder_list [ grepl("Soma", subfolder_list) ]
+somaActin_list<- list()
+
+freq <- 0.5 # set frequency (1/interval)
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(soma_list))  
+{
+  csv_list <- list.files(soma_list[n],pattern = "^soma_actin*(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  somaActin_list[[n]]  <- do.call("cbind", lapply(csv_list, read.csv, header = TRUE)) %>% as.data.table()
+}
+
+soma_actin <- do.call("cbind", somaActin_list) %>% as.data.table()
+```
+
+# Soma Kif5
+```{r}
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+soma_list  <- subfolder_list [ grepl("Soma", subfolder_list) ]
+somaKif5_list<- list()
+
+freq <- 0.5 # set frequency (1/interval)
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(soma_list))  
+{
+  csv_list <- list.files(soma_list[n],pattern = "^soma_Kif5*(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  somaKif5_list[[n]]  <- do.call("cbind", lapply(csv_list, read.csv, header = TRUE)) %>% as.data.table()
+}
+
+soma_Kif5 <- do.call("cbind", somaKif5_list) %>% as.data.table()
+```
+
+# Create stationary (differential) curve of all measurements
+```{r}
+all_sta_list <- list()
+freq <- 0.5 # set frequency (1/interval)
+
+for (m in 1:length(all_list)) {
+  
+  selected_list <- all_list[[m]]
+  sta_list <- list()
+
+  for (n in 1:length(selected_list))  {
+ 
+  sta_list[[n]]<- selected_list[[n]] %>% 
+    forecast::ma(5) %>%                                    # smoothing #1
+    MTS::diffM(d=1) %>% 
+    forecast::ma(3) %>% 
+    ts(frequency = freq, start = c(0, 1))
+  
+  colnames(sta_list[[n]])<-colnames(selected_list[[n]])
+  
+  }
+names(sta_list)<- names(selected_list)
+all_sta_list[[m]]<- sta_list
+}
+
+names(all_sta_list)<- names(all_list )
+```
+
+# Create stationary (differential) curve of all measurements (for length filtered)
+```{r}
+all_50_sta_list <- list()
+
+freq <- 0.5 # set frequency (1/interval)
+
+for (m in 1:length(all_50_list)) {
+  
+  selected_list <- all_50_list[[m]]
+
+  sta_list <- list()
+
+  for (n in 1:length(selected_list))  {
+ 
+  sta <- selected_list[[n]] %>% 
+    forecast::ma(5) %>%                                    # smoothing #1
+    MTS::diffM(d=1) %>% 
+    forecast::ma(3) %>% 
+    as.data.frame()
+  
+    colnames(sta) <- colnames(selected_list[[n]])
+   sta_list [[n]] <- sta   %>%  ts(frequency = freq, start = c(0, 1))
+  
+  }
+
+names(sta_list)<- names(selected_list)
+  
+all_50_sta_list[[m]]<- sta_list
+  
+}
+
+names(all_50_sta_list)<- names(all_list )
+
+```
+
+# Prepare data for cross-correlation analysis at individual neurite level (for length filtered)
+```{r}
+all_50_sta_cell_list <- list()
+
+for (k in 1:length(length_50_list)){
+  
+neurite_list <- list()
+dt1 <- all_50_sta_list[[1]][[k]] %>% as.data.table()
+
+    for (n in 1:ncol(dt1)){
+      
+     dt <- dt1[,..n]
+          for (m in 2:7){
+            
+            dt2 <- all_50_sta_list[[m]][[k]] %>% as.data.table()
+            dt<- cbind(dt, dt2[, ..n])
+          }
+    
+    neurite_list[[n]] <- dt
+    }
+
+names(neurite_list)<- paste("Neurite_", 1:ncol(dt1), sep = "")
+all_50_sta_cell_list[[k]]<- neurite_list
+
+}
+names(all_50_sta_cell_list) <- names(all_50_sta_list[[1]])
+```
+
+# subset the time series 
+```{r}
+
+for (m in 1:length(all_sta_list)) {
+  
+  selected_list <- all_sta_list[[m]]
+  
+  for (n in 1:length(selected_list)){
+    
+   selected_list[[n]] <- selected_list[[n]][1:150, ]
+  }
+  
+  all_sta_list[[m]] <- selected_list
+}
+
+names(all_sta_list)<- names(all_list )
+
+```
+
+# Prepare data for cross-correlation analysis at individual neurite level
+```{r}
+
+library("data.table")
+
+all_sta_cell_list <- list()
+
+for (k in 1:length(length_list)){
+  
+neurite_list <- list()
+
+dt1 <- all_sta_list[[1]][[k]] %>% as.data.table()
+NC <- dt1 %>% ncol()
+
+    for (n in 1:NC){
+      
+     dt <- dt1[,..n]
+     
+          for (m in 2:7){
+            
+            dt2 <- all_sta_list[[m]][[k]] %>% as.data.table()
+            dt<- cbind(dt, dt2[, ..n])
+              
+          }
+    
+    neurite_list[[n]] <- dt
+    
+    }
+
+names(neurite_list)<- paste("Neurite_", 1:NC, sep = "")
+
+all_sta_cell_list[[k]]<- neurite_list
+
+}
+
+names(all_sta_cell_list) <- names(all_sta_list[[1]])
+
+```
+
+# cross-correlation with neurite length at individual neurite level
+```{r warning=FALSE}
+ccf_neurite_length_list <- list()
+selected_list <- all_sta_cell_list # all_sta_cell_list or all_50_sta_cell_list
+selected_list <- unlist(selected_list, recursive=FALSE)
+
+for (n in 2:7){
+  
+    ccfPlot <- ccf (selected_list[[1]][ ,1],  
+                      selected_list[[1]][ ,..n], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                            plot=F, 
+                            lag.max=50) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf (selected_list[[m]][ ,1],  
+                      selected_list[[m]][ ,..n], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                            plot=F, 
+                            lag.max=50) 
+  
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-50:50)
+  ccf_neurite_length_list[[n-1]] <- ccf
+}
+
+names(ccf_neurite_length_list)<- c("Tip_actin",  "Neurite_actin",  "density_actin", "Tip_Kif5",  "Neurite_Kif5",  "density_Kif5")
+
+```
+
+# cross-correlation with neurite length at individual neurite level
+```{r warning=FALSE}
+ccf_neurite_TipActin_list <- list()
+selected_list <- all_sta_cell_list # all_sta_cell_list or all_50_sta_cell_list
+selected_list <- unlist(selected_list, recursive=FALSE)
+
+for (n in 1:7){
+  
+    ccfPlot <- ccf (selected_list[[1]][ ,2],  
+                      selected_list[[1]][ ,..n], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                            plot=F, 
+                            lag.max=50) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf (selected_list[[m]][ ,2],  
+                      selected_list[[m]][ ,..n], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                            plot=F, 
+                            lag.max=50) 
+  
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-50:50)
+  ccf_neurite_TipActin_list[[n]] <- ccf
+}
+
+names(ccf_neurite_TipActin_list)<- c("Length", "Tip_actin",  "Neurite_actin",  "density_actin", "Tip_Kif5",  "Neurite_Kif5",  "density_Kif5")
+
+```
+
+```{r}
+selected_ccf <- ccf_neurite_length_list$Tip_actin
+#selected_ccf <- selected_ccf[ ,grep('DIV2', names(selected_ccf )) ] %>% as.data.table() # DIV1 or DIV2
+selected_ccf$lag<- c(-50:50)/freq
+stacked_ccf_mat <- selected_ccf %>% gather(Neurite, ccf, -lag) # select which CCF of measurements to show
+df_summary <- stacked_ccf_mat %>% group_by(lag) %>% rstatix::get_summary_stats(ccf)
+```
+
+```{r}
+ggsave(
+  "Tip_actin_length.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+# Here we separate the outrgwoth and retraction events first, sum the changes of all neurites, and then do smoothening. (separate -> sum -> smoothening)
+```{r}
+all_sta_PN_list <- list()
+
+for (k in 1:length(all_sta_list)){
+  
+  selected_list <- all_sta_list[[k]]
+  sta_PN_list <- list()
+  
+  thres= 0.0 # change threshold here
+  
+  for (m in 1:length(selected_list)) {
+    
+    DT <- selected_list[[m]] %>% as.data.frame()
+   
+    DT_pos<- DT
+    DT_neg<- DT
+  
+    for (n in 1:dim(DT)[2]){
+        DT_pos[, n][DT_pos[, n] < 0] <- 0 
+        DT_neg[, n][DT_neg[, n] > 0] <- 0 
+    }
+    
+    mat_sum <- data.frame(rowSums(DT_pos), -rowSums(DT_neg)) # add neg sign
+    
+   # mat_sum [, 1][mat_sum [, 1] < thres] <- 0 
+   # mat_sum [, 2][mat_sum [, 2] > -thres] <- 0
+    
+    mat_sum <- mat_sum %>% forecast::ma(5)                    # smoothing #2
+  
+    colnames(mat_sum)<- c(paste("Pos_", names(all_list)[k], sep = ""), paste("Neg_", names(all_list)[k], sep = "")) # create column names
+    sta_PN_list[[m]] <- mat_sum
+  
+  }
+  
+  names(sta_PN_list)<-  names(selected_list)
+  
+  all_sta_PN_list[[k]]<- sta_PN_list
+  
+}
+
+names(all_sta_PN_list)<- names(all_list )
+```
+
+# Combine all stationary PN data of each videos, and add stationary soma data
+```{r}
+comb_sta_list<- list()
+
+k <- all_sta_PN_list[[1]]%>% length()
+
+for (m in 1:k){
+  
+  mat <- all_sta_PN_list[[1]][m] %>% as.data.frame()
+  colnames(mat)<- sub('.*\\.', '', colnames(mat))
+  
+  for (n in 2:length(all_sta_PN_list)){
+    
+    mat2 <- all_sta_PN_list[[n]][m] %>% as.data.table()
+    colnames(mat2)<- sub('.*\\.', '', colnames(mat2))
+    
+    mat <- data.frame(mat, mat2)
+  }
+  
+  Dim <- mat %>% nrow()
+  NM <- all_sta_PN_list[[1]][m] %>% names()
+  mat3 <- mts_stationary_list[[NM]][1:Dim, c(2, 3)] %>% as.data.table() # soma data
+  mat <- data.frame(mat, mat3)
+  
+ comb_sta_list[[m]]<- mat %>% ts(frequency = freq, start = c(0, 1)) 
+
+}
+
+names(comb_sta_list)<-   all_sta_PN_list[[1]] %>% names()
+```
+
+# cross-correlation of stationary PN data
+
+```{r warning=FALSE}
+selected_list <- comb_sta_list
+
+ccf_PN_list<- vector(mode = "list", length = length(all_list)+1)
+
+names(ccf_PN_list)<- c(names(all_list), "soma")
+
+for (n in 1:5){
+  
+    ccfPlot <- ccf (selected_list[[1]][,(n*2-1)],  
+                            selected_list[[1]][,(n*2)], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=50) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf (selected_list[[m]][,(n*2-1)],  
+                            selected_list[[m]][,(n*2)], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=50) 
+                            
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-50:50)
+  ccf_PN_list[[n]] <- ccf
+}
+
+```
+
+```{r warning=FALSE}
+# cross-correlation with stationary Pos_length data
+
+ccf_Poslen_list<- vector(mode = "list", length = dim(selected_list[[1]])[2]-2)
+
+names(ccf_Poslen_list)<- colnames(selected_list[[1]])[-c(1,2)] 
+
+for (n in 3:10){
+  
+    ccfPlot <- ccf (selected_list[[1]][,c("Pos_length")],  
+                            selected_list[[1]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=50) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf (selected_list[[m]][,c("Pos_length")],  
+                            selected_list[[m]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=50) 
+  
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-50:50)
+  ccf_Poslen_list[[n-2]] <- ccf
+}
+```
+
+```{r warning=FALSE}
+# cross-correlation with stationary Neg_length data
+
+ccf_Neglen_list<- vector(mode = "list", length = dim(selected_list[[1]])[2]-2)
+
+names(ccf_Neglen_list)<- colnames(selected_list[[1]])[-c(1,2)] 
+
+for (n in 3:10){
+  
+    ccfPlot <- ccf (selected_list[[1]][,c("Neg_length")],  
+                            selected_list[[1]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=50) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf (selected_list[[m]][,c("Neg_length")],  
+                            selected_list[[m]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=50) 
+  
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-50:50) # corresponds to "lag.max=50" set in ccf
+  ccf_Neglen_list[[n-2]] <- ccf
+}
+```
+
+```{r warning=FALSE}
+# cross-correlation with soma actin
+
+ccf_Actsoma_list<- vector(mode = "list", length = 8)
+
+names(ccf_Actsoma_list)<- c(paste("Pos_", c("length", "tip_actin", "neurite_actin", "Density_actin"), sep=""), paste("Neg_", c("length","tip_actin", "neurite_actin", "Density_actin"), sep=""))
+
+for (n in 1:8){
+  
+  df1 <- selected_list[[1]][ ,"soma_actin"]
+  df2 <- selected_list[[1]][,grep(names(ccf_Actsoma_list)[n],  colnames(selected_list[[n]]))] 
+  
+    ccfPlot <- ccf (df1,  
+                      df2, 
+                      type = "correlation", 
+                      na.action = na.pass,  plot=F, 
+                      lag.max=50) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+     df1 <- selected_list[[m]][ ,"soma_actin"]
+     df2 <- selected_list[[m]][,grep(names(ccf_Actsoma_list)[n],  colnames(selected_list[[n]]))]  
+  
+      ccfPlot_2 <- ccf (df1,  
+                          df2, 
+                          type = "correlation", 
+                          na.action = na.pass,  plot=F, 
+                          lag.max=50) 
+      
+      ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+      
+      ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-50:50)
+  ccf_Actsoma_list[[n]] <- ccf
+}
+
+ccf_all_list<-list(PN=ccf_PN_list, Poslen=ccf_Poslen_list, Neglen=ccf_Neglen_list, somaActin=ccf_Actsoma_list)
+
+```
+
+```{r}
+selected_ccf <- ccf_all_list$PN$length
+
+selected_ccf <-  selected_ccf [ , grep('DIV4', colnames(selected_ccf)) ]  %>% as.data.table()  # filter for DIV3 or DIV4 neuron only
+  
+selected_ccf$lag<- c(-50:50)/freq
+
+stacked_ccf_mat <- selected_ccf %>% gather(Neurite, ccf, -lag) # select which CCF of measurements to show
+
+df_summary <- stacked_ccf_mat %>% group_by(lag) %>% rstatix::get_summary_stats(ccf)
+```
+
+```{r}
+ggsave(
+  "PosNeg_velocity_corr_DIV4.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+# analysis at whole-cell level
+# Create time-series data of total neurite length, and actin intensity/density at neurite tip, shaft, and soma. 
+```{r}
+mts_list<- list()
+mts_avg_list <- list()
+mts_stationary_list <- list()
+
+freq <- 0.5 # set frequency (1/interval)
+pixel <- 0.325 # set pixel size
+
+for (n in 1:length(length_list))  {
+ 
+  mat <- length_list[[n]] %>% rowSums() %>% as.data.table() # total neurite length
+  colnames(mat) <- "sum_length"
+  
+  # get soma intensity
+  ColName <- names(Tip_actin_list)[n]
+
+  Dim <- nrow(Tip_actin_list[[n]])
+  mat$soma_actin <- soma_actin[1:Dim, ..ColName ] 
+  mat$soma_Kif5 <- soma_Kif5[1:Dim, ..ColName ] 
+  
+  mat$sum_tip_actin <- Tip_actin_list[[n]] %>% rowSums()
+  mat$sum_actin <-  Neurite_actin_list[[n]] %>% rowSums() # total actin intensity at the whole neurite
+  mat$sum_neurite_actin <- (Neurite_actin_list[[n]] - Tip_actin_list[[n]]) %>% rowSums() 
+  mat$sum_actin_density <- mat$sum_actin/mat$sum_length # actin density at the whole neurite
+
+    mat$sum_tip_Kif5 <- Tip_Kif5_list[[n]] %>% rowSums()
+  mat$sum_Kif5 <-  Neurite_Kif5_list[[n]] %>% rowSums() # total Kif5 intensity at the whole neurite
+  mat$sum_neurite_Kif5 <- (Neurite_Kif5_list[[n]] - Tip_Kif5_list[[n]]) %>% rowSums() 
+  mat$sum_Kif5_density <- mat$sum_Kif5/mat$sum_length # Kif5 density at the whole neurite
+
+  mts_list[[n]]<- mat %>% ts(frequency = freq, start = c(0, 1)) 
+  
+  mts_avg_list[[n]] <- mts_list[[n]] %>% forecast::ma(5) %>% as.ts() # Moving Average #1
+  colnames(mts_avg_list[[n]])<-colnames(mts_list[[n]])
+  
+  mts_stationary_list[[n]] <- mts_avg_list[[n]] %>% 
+    MTS::diffM(d=1) %>% 
+    forecast::ma(5) %>%                                             # Moving Average #2
+    ts(frequency = freq, start = c(0, 1)) 
+  
+  colnames(mts_stationary_list[[n]])<-colnames(mts_list[[n]])
+  
+}
+
+names(mts_list)<- names(Tip_actin_list)
+names(mts_avg_list)<- names(Tip_actin_list)
+names(mts_stationary_list)<- names(Tip_actin_list)
+```
+
+## We smoothen the stationary profiles first, separete outrgwoth and retraction events, and sum the changes of all neurites. (Smoothening -> separate -> sum)
+```{r warning=FALSE}
+
+# Smoothen the stationary (diff) profiles and optionally filter out small length change with threshold
+
+selected_list <- all_sta_list$length 
+
+mts_stationary_pos_list <- list()
+mts_stationary_neg_list <- list()
+thres= 0.0 # change threshold here
+
+# Positive peaks only (outgrowth event)
+for (m in 1:length(selected_list)) {
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+  length_mat<- selected_list[[m]][, selected_data ]
+  
+  length_mat_avg<- length_mat %>% forecast::ma(5) %>% as.ts() # smoothening 1
+  colnames(length_mat_avg)<-colnames(length_mat)
+
+  mts_dim<- dim(length_mat_avg)
+    for (n in 1:mts_dim[2]){
+      length_mat_avg[, n][length_mat_avg[ , colnames(length_mat_avg)[n]] < thres] <- 0 
+    }
+  
+  length_mat_avg <- length_mat_avg %>% as.data.frame() 
+  length_mat_avg$sum <- length_mat_avg  %>% rowSums()  # We sum up the extent of outgrowth at each time point
+  mts_stationary_pos_list[[m]] <- length_mat_avg %>% ts(frequency = freq, start = c(0, 1)) 
+
+}
+
+# Negative peaks only (retraction event)
+for (m in 1:length(selected_list)) {
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+  length_mat<- selected_list[[m]][, selected_data ]
+  length_mat_avg<- length_mat %>% forecast::ma(5) %>% as.ts() # smoothening 1
+  colnames(length_mat_avg)<-colnames(length_mat)
+  
+  mts_dim<- dim(length_mat_avg)
+    for (n in 1:mts_dim[2]){
+      length_mat_avg[, n][length_mat_avg[ , colnames(length_mat_avg)[n]] > - thres] <- 0 
+    }
+  length_mat_avg <- length_mat_avg %>% as.data.frame() 
+  length_mat_avg$sum <- length_mat_avg  %>% rowSums()  # We sum up the extent of retraction at each time point
+  mts_stationary_neg_list[[m]] <- length_mat_avg %>% ts(frequency = freq, start = c(0, 1)) 
+}
+
+```
+
+# extension and retraction velocity
+```{r}
+Ext_velocity_WT <- list()
+Ret_velocity_WT <- list()
+
+for (m in 1:length(mts_stationary_pos_list)){
+  
+df1 <- mts_stationary_pos_list[[m]] %>% as.data.frame()
+df1[ df1 == 0 ] <- NA
+df1 <- colMeans(df1, na.rm = T)  %>% as.data.frame() # calculate the average velocity through the observation window
+df1$cond <- "WT"
+df1$cell <- names(mts_list)[m] %>% basename() 
+df1$neurite <- rownames(df1)
+df1 <- df1 %>% subset (df1$neurite !="sum")
+df1$length <- length_list[[m]][1,] %>% as.data.table() # add the neurite length at the first time point for later axon-minor neurite separation
+Ext_velocity_WT [[m]] <- df1
+
+df2 <- mts_stationary_neg_list[[m]] %>% as.data.frame()
+df2[ df2 == 0 ] <- NA
+df2 <- colMeans(df2, na.rm = T)  %>% as.data.frame() %>% abs() # calculate the average velocity through the observation window
+df2$cond <- "WT"
+df2$cell <- names(mts_list)[m] %>% basename() 
+df2$neurite <- rownames(df2)
+df2 <- df2 %>% subset (df2$neurite !="sum")
+df2$length <- length_list[[m]][1,] %>% as.data.table()
+Ret_velocity_WT [[m]] <- df2
+  
+}
+```
+
+```{r}
+Ext_velocity_WT_df <- Ext_velocity_WT %>% reduce(bind_rows)  %>% as.data.frame()
+Ext_velocity_WT_df$Growth <- "Extension"
+Ret_velocity_WT_df <- Ret_velocity_WT %>% reduce(bind_rows)  %>% as.data.frame()
+Ret_velocity_WT_df$Growth <- "Retraction"
+
+velocity_comb_df<- rbind(Ext_velocity_WT_df, Ret_velocity_WT_df) %>% as.data.table()
+
+names(velocity_comb_df)[1]<- "Velocity"
+
+#saveRDS(velocity_comb_df, "velocity_comb_df")
+```
+
+```{r}
+velocity_comb_df_axon <- velocity_comb_df[length >50]
+velocity_comb_df_minor <- velocity_comb_df[length <50]
+```
+
+# Scatter plot for neurite length vs velocity
+```{r}
+velocity_comb_df[Growth=="Extension"] %>% ggplot(aes(x=Velocity, y=length) ) +
+  scale_x_continuous( expand = c(0, 0),  limits = c(-0.1, 2),  breaks = scales::pretty_breaks(n = 5)) +
+  geom_point()
+```
+
+# Data points at cell level (axon + minor neurites)
+```{r}
+
+summary_WT_ext <-velocity_comb_df[cond == "WT" & Growth == "Extension"] %>% 
+  group_by(cell) %>% 
+  rstatix::get_summary_stats(Velocity)
+
+summary_WT_ext$cond <- "WT_ext"
+
+summary_WT_ret <-velocity_comb_df[cond == "WT" & Growth == "Retraction"] %>% 
+  group_by(cell) %>% 
+  rstatix::get_summary_stats(Velocity)
+
+summary_WT_ret$cond <- "WT_ret"
+
+df_summary <- rbind(summary_WT_ext, summary_WT_ret)
+```
+
+# Data points at cell level (axon only)
+```{r}
+
+summary_WT_ext <-velocity_comb_df_axon[cond == "WT" & Growth == "Extension"] %>% 
+  group_by(cell) %>% 
+  rstatix::get_summary_stats(Velocity)
+
+summary_WT_ext$cond <- "WT_ext"
+
+summary_WT_ret <-velocity_comb_df_axon [cond == "WT" & Growth == "Retraction"] %>% 
+  group_by(cell) %>% 
+  rstatix::get_summary_stats(Velocity)
+
+summary_WT_ret$cond <- "WT_ret"
+
+df_summary_axon <- rbind(summary_WT_ext, summary_WT_ret) %>% as.data.table()
+df_summary_axon$axon <-"axon"
+
+# remove outliers
+WT_ext_axon <- df_summary_axon[cond=="WT_ext"]
+outliers <- WT_ext_axon %>% rstatix::identify_outliers(mean) 
+WT_ext_axon <-  WT_ext_axon[ !(cell %in% outliers$cell)]
+
+WT_ret_axon <- df_summary_axon[cond=="WT_ret"]
+outliers <- WT_ret_axon %>% rstatix::identify_outliers(mean) 
+WT_ret_axon <-  WT_ret_axon[ !(cell %in% outliers$cell)]
+```
+
+# Data points at cell level (minor neurites only)
+```{r}
+summary_WT_ext <-velocity_comb_df_minor[cond == "WT" & Growth == "Extension"] %>% 
+  group_by(cell) %>% 
+  rstatix::get_summary_stats(Velocity)
+
+summary_WT_ext$cond <- "WT_ext"
+
+summary_WT_ret <-velocity_comb_df_minor[cond == "WT" & Growth == "Retraction"] %>% 
+  group_by(cell) %>% 
+  rstatix::get_summary_stats(Velocity)
+
+summary_WT_ret$cond <- "WT_ret"
+
+df_summary_minor <- rbind(summary_WT_ext, summary_WT_ret) %>% as.data.table()
+df_summary_minor$axon <-"minor"
+
+# remove outliers
+WT_ext_minor <- df_summary_minor[cond=="WT_ext"]
+outliers <- WT_ext_minor %>% rstatix::identify_outliers(mean) 
+WT_ext_minor <-  WT_ext_minor[ !(cell %in% outliers$cell)]
+
+WT_ret_minor <- df_summary_minor[cond=="WT_ret"]
+outliers <- WT_ret_minor %>% rstatix::identify_outliers(mean) 
+WT_ret_minor <-  WT_ret_minor[ !(cell %in% outliers$cell)]
+```
+
+```{r}
+df_summary_axon_minor <- rbind(WT_ext_axon, WT_ret_axon, WT_ext_minor, WT_ret_minor )
+```
+
+```{r}
+df_summary_axon_minor$group <- paste(df_summary_axon_minor$cond, df_summary_axon_minor$axon, sep = "_")
+df <-df_summary_axon_minor$group %>% table() %>% as.data.frame()
+my_comparisons <- df$. %>% as.character() %>% combn(2, simplify = FALSE) 
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=8}
+library(easyGgplot2)
+library(ggpubr)
+
+df_summary_axon_minor[grep('DIV2', df_summary_axon_minor$cell) ] %>% # filter for DIV3 or DIV4 neuron only
+  mutate(group = fct_relevel(group, "WT_ext_axon", "WT_ext_minor", "WT_ret_axon", "WT_ret_minor")) %>% 
+  ggplot2.violinplot(yName="mean", xName='group', groupName='group', 
+                     addDot=TRUE, dotSize=1,dotPosition="jitter", jitter=0.2, 
+                     trim=F,  kernel ="gaussian", adjust=0.5)+
+    
+  geom_boxplot(width=0.1, fill="white")  +
+ # rotate_x_text(angle = 45)+  
+  scale_y_continuous( expand = c(0, 0),  limits = c(-0.1, 1.5),  breaks = scales::pretty_breaks(n = 5)) +
+  stat_compare_means(comparisons = my_comparisons, paired=F, method="wilcox.test", label.y = c(1.15, 1.2, 1.25, 1.3, 1.35, 1.4), label = "{p.adj.format}{p.adj.signif}") +
+  
+  #geom_hline(yintercept = mean(df_summary$median), linetype = 2)+ # Add horizontal line at base mean
+  #stat_compare_means(label.y = 0.45) +        # Add global annova p-value
+  #stat_compare_means(label = "p.signif", method = "wilcox.test", ref.group = ".all.") +
+
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold"))
+   
+```
+
+```{r}
+ggsave(
+  "Axon_minor_velocities_DIV3.eps",
+  plot = last_plot(),
+  device = "eps")
+
+```
+
+# cross-correlation with sum neurite length
+```{r warning=FALSE}
+
+selected_list <- mts_stationary_list
+
+ccf_sum_list<- vector(mode = "list", length = ncol(selected_list[[1]])-1)
+
+names(ccf_sum_list)<- colnames(selected_list[[1]])[-1]
+
+for (n in 2:11){
+  
+    ccfPlot <- ccf(selected_list[[1]][,1],  
+                            selected_list[[1]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=80) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf(selected_list[[m]][,1],  
+                            selected_list[[m]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=80) 
+  
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-80:80)
+  ccf_sum_list[[n-1]] <- ccf
+}
+```
+
+# cross-correlation with soma actin
+```{r warning=FALSE}
+
+selected_list <-mts_stationary_list
+
+ccf_sumActsoma_list<- vector(mode = "list", length = ncol(selected_list[[1]]))
+
+names(ccf_sumActsoma_list)<- colnames(selected_list[[1]])
+
+for (n in 1:11){
+  
+    ccfPlot <- ccf(selected_list[[1]][,2],  
+                            selected_list[[1]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=80) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf(selected_list[[m]][,2],  
+                            selected_list[[m]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=80) 
+  
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-80:80)
+  ccf_sumActsoma_list[[n]] <- ccf
+}
+```
+
+# cross-correlation with soma Kif5
+```{r warning=FALSE}
+
+selected_list <-mts_stationary_list
+
+ccf_sumKif5soma_list<- vector(mode = "list", length = ncol(selected_list[[1]]))
+
+names(ccf_sumKif5soma_list)<- colnames(selected_list[[1]])
+
+for (n in 1:11){
+  
+    ccfPlot <- ccf(selected_list[[1]][,2],  
+                            selected_list[[1]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=80) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf(selected_list[[m]][,2],  
+                            selected_list[[m]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=80) 
+  
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-80:80)
+  ccf_sumKif5soma_list[[n]] <- ccf
+}
+```
+
+```{r}
+ccf_sum_all_list<-list(sumlength=ccf_sum_list,  somaActin=ccf_sumActsoma_list, somaKif5=ccf_sumKif5soma_list)
+
+```
+
+```{r}
+selected_ccf <- ccf_sum_all_list$sumlength$soma_actin
+#selected_ccf <- selected_ccf[ ,grep('DIV4', names(selected_ccf )) ] %>% as.data.table() # DIV3 or DIV4
+selected_ccf$lag<- c(-80:80)/freq
+stacked_ccf_mat <- selected_ccf %>% gather(Neurite, ccf, -lag) 
+df_summary <- stacked_ccf_mat %>% group_by(lag) %>% rstatix::get_summary_stats(ccf, type = "common")
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+ggplot(df_summary, aes(x=lag, y=mean)) +
+   geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="lightgrey")+
+   geom_line(size=1, alpha=1) +
+  
+   stat_peaks(colour = "red", span = 15, ignore_threshold = 0.5) +
+  stat_peaks(geom = "text", colour = "red", span = 15, ignore_threshold = 0.6, hjust = 2, angle = 0) +
+  stat_valleys(colour = "lightblue", span = 13, ignore_threshold = 0.9) +
+ stat_valleys(geom = "text", colour = "blue", span = 13, ignore_threshold = 0.9, hjust = -0.5, angle = 0) +
+  
+   theme_ipsum(grid = F, ticks = T)+ 
+   geom_vline(xintercept=0, linetype="dashed", color = "black")+
+  geom_hline(yintercept=0, linetype="dashed", color = "black")+
+   scale_y_continuous(expand = c(0, 0), limits = c(-0.5 ,0.8),  breaks = scales::pretty_breaks(n = 6))+
+   scale_x_continuous(expand = c(0, 0),  breaks = scales::pretty_breaks(n = 8), limits = c(-100,100)) +
+  
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+#################################################################################################################################
+# Analysis with Jacobson 2006 approach
+```{r}
+# change of fraction of total protein intensity
+
+Tip_Kif5_frac_list <- list()
+
+for (n in 1:length(Tip_Kif5_list)){
+  
+  df <- Tip_Kif5_list[[n]]
+  
+  Tip_Kif5_frac_list[[n]] <- df/rowSums(df, na.rm = T)
+}
+
+names(Tip_Kif5_frac_list) <- names(Tip_Kif5_list)
+
+```
+
+```{r}
+all_list_2 <- list(length = length_list, 
+                 tip_Kif5 = Tip_Kif5_list)
+
+```
+
+# downsampling the time series data from frame/2 min to frame/30 min and the ncreate stationary time-series data
+```{r}
+# Create stationary (differential) curve of all measurements
+
+all_sta_downsampling_list <- list()
+freq <- 0.5 # set frequency (1/interval)
+
+for (m in 1:length(all_list_2)) {
+  
+  selected_list <- all_list_2[[m]]
+  sta_list <- list()
+
+  for (n in 1:length(selected_list))  {
+    
+    df <- selected_list[[n]] 
+    
+    row_num <- nrow(df)
+    #df <- df[seq(0, row_num , by=15), ] # define the subsampling freq
+     df <- df[1:200, ] 
+    new_freq <- freq/15 # define the subsampling freq
+    
+    df  <- df %>% 
+    forecast::ma(5) %>%                                    # smoothing #1
+    MTS::diffM(d=1) %>% 
+    #forecast::ma(3) %>% 
+    ts(frequency = freq, start = c(0, 1)) # or new_freq
+
+    colnames(df) <- colnames(selected_list[[n]])
+    sta_list[[n]] <- df
+ 
+  }
+names(sta_list)<- names(selected_list)
+all_sta_downsampling_list[[m]]<- sta_list
+}
+
+names(all_sta_downsampling_list)<- names(all_list_2)
+```
+
+# Prepare data for cross-correlation analysis at individual neurite level
+```{r}
+library("data.table")
+
+all_sta_cell_downsampling_list <- list()
+
+for (k in 1:length(length_list)){
+  
+neurite_list <- list()
+
+dt1 <- all_sta_downsampling_list[[1]][[k]] %>% as.data.table()
+NC <- dt1 %>% ncol()
+
+    for (n in 1:NC){
+      
+     dt <- dt1[,..n]
+   
+     dt2 <- all_sta_downsampling_list[[2]][[k]] %>% as.data.table()
+     dt<- cbind(dt, dt2[, ..n])
+     names(dt) <- c("Length", "Kif5_frac")
+     dt$Neurite <-  paste("Neurite_", n,  sep = "")
+     dt$Cell <- names(all_sta_list[[1]]) [k]
+    
+     neurite_list[[n]] <- dt
+    }
+
+all_sta_cell_downsampling_list[[k]]<- neurite_list %>% reduce(bind_rows)
+}
+
+names(all_sta_cell_downsampling_list) <- names(all_sta_list[[1]])
+```
+
+```{r}
+all_sta_cell_downsampling_df <- all_sta_cell_downsampling_list %>% reduce(bind_rows) %>% as.data.table()
+```
+
+```{r}
+  library(easyGgplot2)
+
+all_sta_cell_downsampling_df %>% 
+  ggplot2.violinplot(yName="Kif5_frac",  addDot=TRUE, dotSize=2,
+      dotPosition="jitter", jitter=0.2, trim=F,  kernel ="gaussian", adjust=2)+
+  geom_boxplot(width=0.1, fill="white")  
+```
+
+```{r}
+all_sta_cell_downsampling_df %>% 
+ggplot(aes(x = Length, y = Kif5_frac))  +
+  geom_point(alpha=0.05 )+
+    #scale_y_continuous(expand = c(0, 0), limits = c(-0.05 ,0.05),  breaks = scales::pretty_breaks(n = 4))+
+   scale_x_continuous(expand = c(0, 0),  breaks = scales::pretty_breaks(n = 8), limits = c(-2,2)) +
+  #stat_density_2d(aes(fill = after_stat(level)), geom="polygon")+
+   geom_smooth(method=glm, color="black")
+```
+# cross-correlation with neurite length at individual neurite level
+```{r warning=FALSE}
+ccf_neurite_length_list <- list()
+selected_list <- all_sta_cell_downsampling_list 
+selected_list <- unlist(selected_list, recursive=FALSE) # all_sta_cell_list or all_50_sta_cell_list
+
+for (n in 2:8){
+  
+    ccfPlot <- ccf (selected_list[[1]][ ,1],  
+                      selected_list[[1]][ ,..n], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                            plot=F, 
+                            lag.max=13) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf (selected_list[[m]][ ,1],  
+                      selected_list[[m]][ ,..n], 
+                            type = "correlation", 
+                            na.action = na.pass,
+                            plot=F, 
+                            lag.max=13) 
+  
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-13:13)
+  ccf_neurite_length_list[[n-1]] <- ccf
+}
+
+names(ccf_neurite_length_list)<- c("Tip_actin",  "Neurite_actin",  "density_actin", "Tip_Kif5",  "Tip_Kif5_frac", "Neurite_Kif5",  "density_Kif5")
+
+```
+
+```{r}
+selected_ccf <- ccf_neurite_length_list$Tip_Kif5_frac
+#selected_ccf <- selected_ccf[ ,grep('DIV2', names(selected_ccf )) ] %>% as.data.table() # DIV1 or DIV2
+selected_ccf$lag<- c(-13:13)/(freq/15)
+stacked_ccf_mat <- selected_ccf %>% gather(Neurite, ccf, -lag) # select which CCF of measurements to show
+df_summary <- stacked_ccf_mat %>% group_by(lag) %>% rstatix::get_summary_stats(ccf)
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=8}
+ggplot(df_summary, aes(x=lag, y=mean)) +
+
+  geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="lightgrey", alpha=1)+
+  geom_line(size=1) +
+  
+  geom_vline(xintercept=0, linetype="dashed", color = "black")+
+  geom_hline(yintercept=0, linetype="dashed", color = "black")+
+  
+  stat_peaks(colour = "red", ignore_threshold = 0.9) +
+  stat_peaks(geom = "text", colour = "red", vjust = -0.5, ignore_threshold = 0.9) +
+  
+  stat_valleys(colour = "blue", ignore_threshold = 0.9, span = 11)+
+  stat_valleys(geom = "text", colour = "blue", angle = 45, vjust = 1.5, hjust = 1, ignore_threshold = 0.9, span = 11)+
+  
+  scale_y_continuous(expand = c(0, 0), limits = c(-0.4, 0.8), breaks = scales::pretty_breaks(n = 7))+
+  scale_x_continuous(expand = c(0, 0), limits = c(-150, 150), breaks = scales::pretty_breaks(n = 8)) + 
+  
+  theme_ipsum(grid = F, ticks = T)+ 
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+############################################################################################
+# extract neurite growth velocity dataframe and add sample labels
+```{r}
+Pos_neg_list <- list()
+
+selected_list <- all_sta_cell_list # all_sta_cell_downsampling_list
+
+for (n in 1:length(all_sta_cell_list)){
+  
+  selected_cell <- all_sta_cell_list[[n]]
+  #selected_cell_Arp3 <- all_list$tip_Arp3[[n]]
+  
+  df_1 <-selected_cell[[1]][,1] # select the first 50 frames only to reduce photobleaching at later time points ([1:100, ])
+  df_1$Neurite <- names(df_1)
+  names(df_1)[1]<-"Velocity"
+  
+  df_1$Cell <- names(all_sta_cell_list)[n]
+  
+  for (m in 2:length(selected_cell)){
+    
+  df_2 <- selected_cell[[m]][,1] # select the first 50 frames only to reduce photobleaching at later time points
+ 
+  df_2$Neurite <- names(df_2)
+  names(df_2)[1]<-"Velocity"
+  df_2$Cell <- names(all_sta_cell_list)[n]
+  
+  df_1 <- rbind(df_1, df_2)
+    
+  }
+  
+  Pos_neg_list[[n]]<-df_1
+  
+}
+```
+
+# add extension-retraction (Positive-Negative) labels to velocity dataframe
+```{r}
+Pos_neg_label_list<- list()
+threshold <- 0.4 # setup the length change threshold to define extension and retraction
+
+for (n in 1:length(Pos_neg_list)){
+  
+  df<- Pos_neg_list[[n]]
+  df$labels <- ifelse(df$Velocity> threshold, "Positive",
+                    ifelse(df$Velocity < -threshold, "Negative",
+                           "Pause"))
+  
+  Pos_neg_label_list [[n]]<- df
+  
+}
+```
+
+# extract selected protein intensity dataframe and add sample labels
+```{r}
+selected_list <- all_list$tip_Kif5
+
+tip_Kif5CInt_list <- list()
+
+for (n in 1:length(selected_list)){
+  
+  selected_cell <- selected_list [[n]] %>% as.data.frame()
+  
+  df_1 <-selected_cell[,1] %>% as.data.frame()
+  df_1$Neurite <- names(selected_cell)[1]
+  names(df_1)[1]<-"Intensity"
+  df_1$Cell <- names(selected_list)[n]
+  df_1 <- df_1[-1, ]
+ 
+  for (m in 2:length(selected_cell)){
+    
+  df_2 <-selected_cell[,m]  %>% as.data.frame()
+  df_2$Neurite <- names(selected_cell)[m]
+  names(df_2)[1]<-"Intensity"
+  df_2$Cell <- names(selected_list)[n]
+  df_2 <- df_2[-1, ]
+  
+  df_1 <- rbind(df_1, df_2)  
+  }
+  
+  tip_Kif5CInt_list[[n]]<-df_1 %>% as.data.frame()
+  
+}
+```
+
+# calculate average intensity at extending and retractin neurites in each neuron, and get the Z-score
+```{r}
+summary_list <- list()
+
+for (n in 1: length(tip_Kif5CInt_list)){
+  
+  df <- tip_Kif5CInt_list[[n]]
+  df$labels <- Pos_neg_label_list[[n]]$labels 
+  
+  df <- df %>% group_by(labels) %>% rstatix::get_summary_stats(Intensity) %>% as.data.table()
+  df <- df[labels == "Negative" | labels == "Positive" | labels == "Pause"] # | labels == "Pause"
+  df$Zscore <- (df$median-mean(df$median))/sd(df$median) # mean or median
+  df$Cell<- names(all_list$tip_Kif5)[n]
+  
+  summary_list[[n]] <- df
+}
+
+names(summary_list) <- names(all_list$tip_Kif5)
+
+summary_df<- summary_list %>% reduce(bind_rows) %>% as.data.table()
+
+# summary_df<- summary_df[labels == "Negative" | labels == "Positive"]
+
+```
+
+```{r, message = FALSE, warning=FALSE, fig.width=8}
+library("ggpubr")
+my_comparisons <- list( c("Positive", "Negative"), c("Positive", "Pause"), c("Negative", "Pause"))
+
+ggplot(summary_df[sd < 30] , aes(x=labels, y=Zscore, fill=labels)) + 
+  geom_violin(trim=FALSE, 
+              kernel ="gaussian", 
+              adjust=0.8)+
+  geom_boxplot(width=0.2, fill="white")  +
+  geom_point(aes(fill=labels,group=Cell), position = position_dodge(0.2))+
+  geom_line(aes(group=Cell), position = position_dodge(0.2)) +
+  stat_compare_means(comparisons = my_comparisons, paired=T, method="wilcox.test")+
+ # scale_y_continuous( expand = c(0, 0), limits = c(-0.2, 1.2), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+# plotly::ggplotly(p)
+```
+```{r}
+ggsave(
+  "Tip_Kif5C_extension_retraction.eps",
+  plot = last_plot(),
+  device = "eps")
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.

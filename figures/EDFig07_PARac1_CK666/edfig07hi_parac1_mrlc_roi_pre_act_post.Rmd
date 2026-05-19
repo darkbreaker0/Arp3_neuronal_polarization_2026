@@ -1,0 +1,213 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+<!--
+## What this file does
+
+Reads three Fiji ROI-batch-measurement CSVs (`Myl_quant`, `Arp3_quant`,
+`Actin_quant`) from PA-Rac1 + para-aminoblebbistatin photoactivation
+movies. For each of the N=13 activation events, intensity at the growth
+cone is sampled at three timepoints:
+
+- **Pre** : frame(s) immediately before the photoactivation pulse
+- **Act** : frame(s) during photoactivation
+- **Post**: frame(s) immediately after photoactivation ends
+
+Each intensity is mean-centered per ROI (subtract per-ROI 3-frame mean)
+so the y-axis shows `Intensity - mean` rather than absolute intensity.
+The three timepoints are then compared by **paired Wilcoxon signed-rank
+test** (one ROI = one paired triplet); `stat_compare_means` does the
+Pre/Act, Act/Post, Pre/Post pairs.
+
+Outputs `Myl.eps` (MRLC violin) and `Actin.eps` (Actin violin) plots
+next to this Rmd, each showing the per-ROI lines + violin shape +
+pairwise p-values.
+
+## Manuscript panels
+
+- **ED Fig 7h** - "Actin intensity difference relative to mean at the
+  growth cones before (Pre), during (Act) and after (Post) PA-Rac1
+  activation. N = 13 activation events from 5 independent experiments.
+  ***p < 0.001; **p < 0.01; ns, p >= 0.05 by Two-tailed paired Wilcoxon
+  test with Holm correction." (Source Data: `ED Fig 7h`)
+- **ED Fig 7i** - "The same as in (h), but with MRLC intensity."
+  (Source Data: `ED Fig 7i`)
+
+This file (originating from
+`G:/Figure S7_PARac1_CK666/Fig. S7h/R_script/Neurite activity corr.Rmd`)
+is the PRIMARY PUBLISHED SOURCE for ED Fig 7h + 7i. A duplicate Section-1
+implementation was found in the LSM980 working directory; that duplicate
+was split to `unused_scripts/exploratory/parac1_pre_act_post_section1_of_fig03c_exploratory.Rmd`.
+
+## Inputs
+
+- Three folder globs `Myl_list`, `Arp3_list`, `Actin_list` from the
+  parent directory, containing per-experiment subfolders. Each subfolder
+  has `Myl*.csv`, `Arp3*.csv`, `Actin*.csv` measurement tables from
+  Fiji's "Batch ROI measurement" macro.
+- The chunk reads only the FIRST CSV per channel
+  (`list.files(...)[1]`-style call inside the read pattern), so make
+  sure the Fiji output order corresponds to the desired ROIs.
+
+## Outputs
+
+- `Myl.eps` - MRLC Pre/Act/Post violin (ED Fig 7i raw plot)
+- `Actin.eps` - Actin Pre/Act/Post violin (ED Fig 7h raw plot)
+
+The `-10000` offset on line ~98 / ~152 (`\ <- \ - 10000`)
+is a constant baseline subtraction reflecting the imaging system's
+camera offset; do not interpret as a biological zero.
+
+## Note on what is NOT in this file (post-split)
+
+The original monolith at G:\ contained Sections 2-8 with extensive
+time-series prep and cross-correlation analyses. Those sections are
+NOT in this file; they live in
+`unused_scripts/exploratory/parac1_paraBlebb_ccf_sections_of_edfig07hi_exploratory.Rmd`
+as an audit-only artifact. The CCF outputs are not consumed by any
+ED Fig 7 panel.
+
+## Original G:\ source
+G:/Figure S7_PARac1_CK666/Fig. S7h/R_script/Neurite activity corr.Rmd
+(Section 1: lines ~75-239 of the original monolith.)
+-->
+
+## Package installation
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+load(file=saved_path)
+
+```
+
+## Read .csv files
+
+```{r}
+Myl_quant_wide<- pivot_wider(Myl_quant, id_cols = "roi", names_from = "Series", values_from = "Mean")
+
+Myl_quant_wide$mean<- rowMeans(Myl_quant_wide[,c(2:4)])
+
+Myl_quant_wide$Pre <- Myl_quant_wide$Pre-Myl_quant_wide$mean
+Myl_quant_wide$Act <- Myl_quant_wide$Act-Myl_quant_wide$mean
+Myl_quant_wide$Post <- Myl_quant_wide$Post-Myl_quant_wide$mean
+
+Myl_quant_long<- pivot_longer(Myl_quant_wide[-5,], cols=c(2:4), names_to = "Series", values_to="Int")
+
+Myl_quant_long$Series <- factor(Myl_quant_long$Series, levels=unique(Myl_quant_long$Series))
+
+```
+
+```{r}
+library(ggpubr)
+
+my_comparisons <- list( c("Pre", "Act"), c("Act", "Post"), c("Pre", "Post") )
+
+ggplot(Myl_quant_long, aes(x=Series, y=Int, fill=Series)) + 
+  geom_violin(trim=FALSE, 
+              kernel ="gaussian", 
+              adjust=1.6)+
+  #geom_boxplot(width=0.1, fill="white")  +
+  geom_point(aes(fill=Series,group=roi), position = position_dodge(0.2))+
+  geom_line(aes(group=roi), position = position_dodge(0.2)) +
+  stat_compare_means(comparisons = my_comparisons, paired=T, method="wilcox.test")+
+  scale_y_continuous( expand = c(0, 0), limits = c(-40, 60), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+```{r}
+ggsave(
+  "Myl.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+```{r}
+Myl_quant_wide %>% write_csv("Myl_quant_wide.csv")
+```
+
+```{r}
+Actin_quant_wide<- pivot_wider(Actin_quant, id_cols = "roi", names_from = "Series", values_from = "Mean")
+
+Actin_quant_wide$mean<- rowMeans(Actin_quant_wide[,c(2:4)])
+
+Actin_quant_wide$Pre <- Actin_quant_wide$Pre-Actin_quant_wide$mean
+Actin_quant_wide$Act <- Actin_quant_wide$Act-Actin_quant_wide$mean
+Actin_quant_wide$Post <- Actin_quant_wide$Post-Actin_quant_wide$mean
+
+Actin_quant_long<- pivot_longer(Actin_quant_wide[-c(5,8), ], cols=c(2:4), names_to = "Series", values_to="Int")
+
+Actin_quant_long$Series <- factor(Actin_quant_long$Series, levels=unique(Actin_quant_long$Series))
+
+```
+
+```{r}
+library(ggpubr)
+
+my_comparisons <- list( c("Pre", "Act"), c("Act", "Post"), c("Pre", "Post") )
+
+ggplot(Actin_quant_long, aes(x=Series, y=Int, fill=Series)) + 
+  geom_violin(trim=FALSE, 
+              kernel ="gaussian", 
+              adjust=1.6)+
+  #geom_boxplot(width=0.1, fill="white")  +
+  geom_point(aes(fill=Series,group=roi), position = position_dodge(0.2))+
+  geom_line(aes(group=roi), position = position_dodge(0.2)) +
+  stat_compare_means(comparisons = my_comparisons, paired=T, method="wilcox.test")+
+  scale_y_continuous( expand = c(0, 0), limits = c(-100, 120), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+```{r}
+ggsave(
+  "Actin.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+```{r}
+Actin_quant_wide %>% write_csv("Actin_quant_wide.csv")
+```

@@ -1,0 +1,272 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+<!--
+# ED Fig 2i - Frequency of actin waves per axon and minor neurite,
+# before and after polarization. DIV-3 polarized neurons. Paired
+# Wilcoxon test with Holm correction.
+
+## What this file does
+
+For each DIV-3 polarized neuron movie:
+
+1. Reads soma-actin + actin-wave-frame CSVs.
+2. Classifies wave-receiving neurites as `axon` (the polarized long
+   neurite) vs `minor` (the short ones).
+3. Counts waves per neurite class per cell.
+4. Converts to events per hour.
+5. Compares axon vs minor wave frequency with a paired Wilcoxon
+   signed-rank test (one pairing = one cell).
+6. Saves `wave_count_2.rds` (per-cell wave-count summary, feeds
+   Source Data `ED Fig 2i`).
+7. Saves `DIV3_wave_count.pdf` (violin/box/jitter plot).
+
+## Manuscript panel
+
+- **ED Fig 2i** - "Frequency of actin waves per axon and minor
+  neurite before and after polarization. N = 37 DIV-3 neurons from 3
+  experiments. **p < 0.01 by Paired Wilcoxon test with Holm
+  correction." Source Data sheet: `ED Fig 2i`.
+
+## Original G:\ source
+
+G:/Figure S2_actin/Fig. S2h/Polarized_neurons/R_scripts/wave_count.Rmd
+(Section A only.)
+-->
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(ggpubr)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+library(ggpubr)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+get_notebook_dir <- function() {
+  # Resolve the notebook folder from RStudio when available.
+  # Fallback: current working directory.
+  if (requireNamespace("rstudioapi", quietly = TRUE) && rstudioapi::isAvailable()) {
+    ctx_path <- rstudioapi::getSourceEditorContext()$path
+    if (!is.null(ctx_path) && nzchar(ctx_path)) {
+      return(dirname(ctx_path))
+    }
+  }
+  normalizePath(".", winslash = "/", mustWork = TRUE)
+}
+
+Path_1 <- get_notebook_dir()
+saved_path <- file.path(Path_1, "wave_count.RData")
+if (file.exists(saved_path)) {
+  # Optional interactive state restore.
+  load(file = saved_path)
+}
+```
+
+```{r}
+Path_1 <- get_notebook_dir()
+saved_path <- file.path(Path_1, "wave_count.RData")
+# Save current workspace for later interactive reuse.
+save.image(file=saved_path)
+
+```
+
+# Soma actin and actin wave frame
+```{r}
+
+axon_wave_csv_list <- list.files(Path_1 ,pattern = "axon_wave(.*)csv$", 
+                     recursive = T,  #list of subfolders and files within the subfolders
+                     include.dirs = T, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+
+minor_wave_csv_list <- list.files(Path_1,pattern = "minor_wave(.*)csv$", 
+                     recursive = T,  #list of subfolders and files within the subfolders
+                     include.dirs = T, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+
+wave_pair_key <- function(path, prefix) {
+  # Pair axon/minor CSVs by: parent folder + shared filename suffix.
+  paste0(fs::path_dir(path), "::", gsub(paste0("^", prefix), "", fs::path_file(path)))
+}
+
+axon_keys <- vapply(axon_wave_csv_list, wave_pair_key, character(1), prefix = "axon_wave")
+minor_keys <- vapply(minor_wave_csv_list, wave_pair_key, character(1), prefix = "minor_wave")
+common_keys <- intersect(axon_keys, minor_keys)
+
+if (length(common_keys) == 0) {
+  stop("No matched axon/minor wave CSV pairs found.", call. = FALSE)
+}
+
+missing_axon_keys <- setdiff(axon_keys, common_keys)
+missing_minor_keys <- setdiff(minor_keys, common_keys)
+if (length(missing_axon_keys) > 0 || length(missing_minor_keys) > 0) {
+  warning("Unpaired wave files were excluded from analysis.")
+}
+
+axon_wave_csv_list <- axon_wave_csv_list[match(common_keys, axon_keys)]
+minor_wave_csv_list <- minor_wave_csv_list[match(common_keys, minor_keys)]
+
+freq <- 0.5 # set frequency (1/interval)
+
+# read csv files 
+
+   axon_wave_list <-  axon_wave_csv_list %>% map(read.csv)
+   minor_wave_list <- minor_wave_csv_list %>% map(read.csv)
+   
+   # Parse metadata from file labels and normalize durations to minutes.
+   for (k in seq_along(axon_wave_csv_list))  
+         {
+    axon_df <- axon_wave_list[[k]]
+    axon_df$Image <- axon_df$Label %>% gsub(".* - ","",.)
+    
+    axon_df$Duration <- axon_df$Label %>% gsub(".*/","",.) %>% gsub(" - .*","",.) %>% as.numeric()
+    axon_df$Duration <- axon_df$Duration/freq
+    axon_df$Batch <- axon_wave_csv_list[k] %>% fs::path_dir() %>% fs::path_dir() %>% fs::path_file()
+    axon_df$neurite_id <- "axon"
+    
+    minor_df <- minor_wave_list[[k]]
+    minor_df$Image <- minor_df$Label %>% gsub(".* - ","",.)
+    minor_df$Duration <- minor_df$Label %>% gsub(".*/","",.) %>% gsub(" - .*","",.) %>% as.numeric()
+    minor_df$Duration <- minor_df$Duration/freq
+    minor_df$Batch <- minor_wave_csv_list[k] %>% fs::path_dir() %>% fs::path_dir() %>% fs::path_file()
+    minor_df$neurite_id <- "minor"
+    
+    axon_wave_list[[k]] <- axon_df
+    minor_wave_list[[k]] <- minor_df
+
+   }
+   
+   axon_wave <- axon_wave_list %>% reduce(bind_rows) %>% as.data.table()
+   minor_wave <- minor_wave_list %>% reduce(bind_rows) %>% as.data.table()
+   
+   wave_axon_minor <- rbind(axon_wave, minor_wave)
+```
+
+```{r}
+image_name <- axon_wave$Image %>% unique()
+
+duration_df <- axon_wave[, c("Image", "Duration")] %>% unique()
+
+cell_df <- read_rds("cell_df.rds") %>% as.data.table()
+colnames(cell_df)[1] <- "Image"
+cell_df$neurite_num <- cell_df$neurite_num %>% as.numeric()
+cell_df <- cell_df[Image %in% image_name]
+# add data of the 2nd cell of the image
+cell_df <- cell_df %>% add_row(Image = "WT_DIV3_LAmScar_01_03_R3D_2.dv", neurite_num = 7) %>% sort_by(~Image)
+
+cell_df <- merge(cell_df , duration_df, by ="Image")
+
+# Count waves per image for each neurite class.
+axon_wave$count <- 1
+axon_wave_count <- axon_wave[, .(count = .N, var = sum(count)), by = Image]
+axon_wave_count$neurite_id <- "axon"
+axon_wave_count <- merge(axon_wave_count , cell_df, by ="Image")
+  
+minor_wave$count <- 1
+minor_wave_count <- minor_wave[, .(count = .N, var = sum(count)), by = Image]
+minor_wave_count$neurite_id <- "minor"
+minor_wave_count <- merge(minor_wave_count , cell_df, by ="Image")
+
+minor_wave_count$avg <- (minor_wave_count$count/( minor_wave_count$neurite_num -1))/ minor_wave_count$Duration
+axon_wave_count$avg <- axon_wave_count$count/1/axon_wave_count$Duration
+
+wave_count <- rbind(minor_wave_count, axon_wave_count) %>% as.data.table()
+
+# Convert to events per hour for plotting/reporting.
+wave_count$avg_hour <- wave_count$avg * 60
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+library(plotly)
+my_comparisons <- list(c("axon", "minor"))
+
+pj <- position_jitter(seed = 1, width = .01, height = 0)
+
+# Store the ggplot object explicitly so ggsave() is deterministic.
+p_wave_count <- wave_count %>% mutate(neurite_id = factor(neurite_id, levels=c("axon", "minor"))) %>% 
+ggplot ( aes(x=neurite_id, y=avg_hour, fill =neurite_id) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+  geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+  geom_boxplot(aes(), width=0.2, fill="white", outlier.colour = NA)+ 
+
+  # geom_line(aes(group = Image))+
+  # geom_point() +
+   
+  geom_jitter(aes(), shape=16, position=pj)+ 
+  geom_path(aes(group = Image),alpha = 0.5,  position = pj)+
+    
+# scale_y_continuous(expand = c(0, 0), limits = c(-0.005, 0.03), breaks = scales::pretty_breaks(n = 5))+ 
+# geom_signif(comparisons = my_comparisons ,test = "wilcox.test",  color="black")+
+stat_compare_means(comparisons = my_comparisons, test = "wilcox.test", paired=T)+
+    theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+p_wave_count
+
+```
+
+```{r}
+ggsave(
+  "DIV3_wave_count.pdf",
+  # width=14, height=7, 
+  plot = p_wave_count,
+  device = "pdf")
+
+#dev.off()
+```
+
+```{r}
+wave_count_2 <- wave_axon_minor %>% 
+  group_by(Image) %>%  
+  rstatix::get_summary_stats(Slice) %>% 
+  as.data.table()
+
+# First approach: infer rate from wave-frame summary.
+wave_count_2$wave_count_hour <- wave_count_2$n/ ((wave_count_2$max- wave_count_2$min)*2) *60
+```
+
+```{r}
+wave_count_2 <- wave_count %>% 
+  group_by(Image, Duration) %>%  
+  rstatix::get_summary_stats(count) %>% 
+  as.data.table()
+
+# Second approach: infer rate from total counts and recording duration.
+wave_count_2$total_wave_count <- wave_count_2$n * wave_count_2$mean
+wave_count_2$wave_count_hour <- (wave_count_2$total_wave_count/wave_count_2$Duration) * 60
+```
+
+```{r}
+saveRDS(wave_count_2, "wave_count_2.rds")
+```

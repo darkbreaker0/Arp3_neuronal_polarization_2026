@@ -1,0 +1,992 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis)
+library(hrbrthemes)
+library(ggpubr)
+library(easyGgplot2)
+library(data.table)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(Path_1)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+load(file=saved_path)
+
+```
+
+```{r}
+df_summary_mean_vel[Cond =="WT"]
+```
+
+```{r}
+filename <- file.choose()
+WT_df_list <- readRDS(filename)
+
+filename <- file.choose()
+KO_df_list <- readRDS(filename)
+
+df_list <- c(WT_df_list, KO_df_list)
+```
+
+# (optional) despiking
+```{r}
+
+for (n in 1:length(df_list)){
+  df <- df_list[[n]]
+  df_list[[n]] <- pracma::hampel(df, k=7)$y
+  
+}
+```
+
+## Import time-series neurite length data (Data -> moving average (avg) -> differencing (stationary))
+```{r}
+freq<- 0.5
+mts_list<- list()
+mts_avg_list <- list()
+mts_stationary_list <- list()
+
+for (n in 1:length(df_list))  {
+ 
+  length_mat<-df_list[[n]] %>% as.data.table()
+  length_mat$sum_length <- length_mat %>% rowSums() 
+  
+  mts_list[[n]]<- length_mat %>% ts(frequency = freq, start = c(0, 1)) 
+  
+  # Moving Average to smooth out outliers/noise
+  mts_avg_list[[n]] <- mts_list[[n]] %>% forecast::ma(5) %>% as.ts() # smoothening 1
+  colnames(mts_avg_list[[n]])<-colnames(mts_list[[n]])
+ 
+  mts_stationary_list[[n]] <- mts_avg_list[[n]] %>% MTS::diffM(d=1) %>% ts(frequency = freq, start = c(0, 1)) # Differential 
+  
+}
+
+names(mts_list)<- names(df_list)
+names(mts_avg_list)<- names(df_list)
+names(mts_stationary_list)<- names(df_list)
+
+```
+
+## Plotting the time series as curves
+```{r}
+
+mts_profile_list <- list()
+avg_profile_list <- list()
+sta_profile_list <- list()
+thres= 0.3 # change threshold for stationary profile here
+
+for (n in 1:length(mts_avg_list))  {
+  
+ plot_title<- paste(names(df_list)[n], sep = "")
+ selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(mts_avg_list[[n]]))
+
+ theme_set(theme_bw())
+ avg_profile_list[[n]] <- mts_avg_list[[n]][, selected_data] %>%  autoplot() +
+  #ggtitle (plot_title) +
+  geom_line(aes(),linewidth=1)  +
+   scale_y_continuous(breaks = scales::pretty_breaks(n = 7))+
+  scale_x_continuous(expand = c(0, 0), limits = c(0, NA), breaks = scales::pretty_breaks(n = 8)) + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+ 
+ mts_profile_list[[n]] <- mts_list[[n]][, selected_data] %>%  autoplot() +
+ # ggtitle (plot_title) +
+  geom_line(aes(),linewidth=1)  +
+    scale_y_continuous(breaks = scales::pretty_breaks(n = 7))+
+  scale_x_continuous(expand = c(0, 0), limits = c(0, NA), breaks = scales::pretty_breaks(n = 15)) + 
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+ 
+ sta_profile_list[[n]] <- mts_stationary_list[[n]][, selected_data] %>%  autoplot() +
+  #ggtitle (plot_title) +
+  geom_line(aes(),linewidth=0.25)  +
+   geom_hline(yintercept=0, linetype="dashed", color = "red")+
+   geom_hline(yintercept=thres, linetype="dashed", color = "blue")+
+   geom_hline(yintercept=-thres, linetype="dashed", color = "blue")+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+ 
+}
+
+names(mts_profile_list) <- names(df_list)
+names(avg_profile_list) <- names(df_list)
+names(sta_profile_list) <- names(df_list)
+```
+
+## Visualization of the selected curves
+```{r message = FALSE, warning=FALSE, fig.width=10}
+fig_A <- mts_profile_list[[33]]
+fig_B <- avg_profile_list[[33]]
+fig_C <- sta_profile_list[[33]]
+fig_D <- avg_profile_list[[18]]
+
+ggpubr::ggarrange(fig_A, fig_B, fig_C, fig_D, 
+                  labels = c("A", "B", "C", "D"),
+                  ncol = 2, nrow = 2,  legend="none")
+
+```
+
+```{r}
+ggsave(
+  "KO_33_lengthProfile.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+## We convert the multiple times series data to appropriate dataframe for stack area plot
+```{r}
+
+selected_list <-mts_stationary_list
+stacked_avg_list <- list()
+
+for (m in 1:length(selected_list)) {
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+  
+  colNames <- colnames(selected_list[[m]][ ,selected_data])
+  length_mat<- selected_list[[m]][, selected_data] %>%  forecast::ma(5) %>% as.data.frame() # smoothening 2
+  colnames(length_mat) <- colNames 
+  
+  mts_dim<- dim(length_mat)
+  length_mat$Time <- as.numeric(rep(seq(0,mts_dim[1]-1)* 1/freq), times=mts_dim[2] )
+  
+  stacked_mat_list <-list()
+    for (n in 1:mts_dim[2]){
+     stacked_mat <- length_mat[ ,c(mts_dim[2]+1, n)]
+     stacked_mat$neurite <- colnames(length_mat)[n]
+     colnames(stacked_mat)[2]<-"Length"
+     stacked_mat_list[[n]]<-stacked_mat
+    }
+  stacked_mat <-  data.table::rbindlist(stacked_mat_list)
+ stacked_avg_list [[m]] <- stacked_mat
+}
+
+names(stacked_avg_list) <- names(df_list)
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+stacked_avg_list[[33]] %>% 
+  ggplot(aes(x = Time, y = Length, fill = neurite)) +
+    geom_area(alpha=1 ) +
+  theme_linedraw()+
+    scale_fill_viridis(discrete = T) + 
+  scale_y_continuous( limits = c(-1.2, 1.5), breaks = scales::pretty_breaks(n = 7))+
+  scale_x_continuous(expand = c(0, 0), limits = c(0, NA), breaks = scales::pretty_breaks(n = 7)) + 
+
+  # scale_fill_brewer(palette = "Set2") +
+   # theme_ipsum(grid = F, ticks = T) +
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none", 
+        axis.text=element_text(size=12)) #for centering the text
+```
+
+## The frequency of multiple extending, retracting and pausing neurites over the whole observation window
+# Calculate neurite outgrowth/retraction events from the stationary/differential curves
+```{r}
+selected_list <- mts_stationary_list # mts_stationary_list or mts_avg_list
+
+pos_neg_thres_list <- list()
+# thres= 0.02 # change threshold here
+
+for (n in 1: 10){
+  
+  thres= n*0.02
+  pos_neg_list <- list()
+  
+  for (m in 1:length(selected_list)) {
+    
+    selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+    length_mat<- selected_list[[m]][, selected_data] %>% as.data.frame()
+    
+    length_mat2 <- length_mat
+    neurite_num <- ncol(length_mat)
+  
+    tab1 <- apply(length_mat, 1, function(x) sum(x > thres, na.rm = TRUE)) %>%  table() %>% as.data.table()
+    tab1$act<- "extension"
+    names(tab1)[1]<- "Num"
+    tab1$Num <- tab1$Num %>% as.numeric()
+    tab1$pct<- tab1$N/sum(tab1$N)
+    tab1$rel_n <- tab1$Num/neurite_num
+    tab1$Cell<- names(df_list)[m]
+    
+    tab2 <- apply(length_mat, 1, function(x) sum(x < -thres, na.rm = TRUE)) %>%  table() %>% as.data.table()
+    tab2$act<- "retraction"
+    names(tab2)[1]<- "Num"
+    tab2$Num <- tab2$Num %>% as.numeric()
+    tab2$pct<- tab2$N /sum(tab2$N)
+    tab2$rel_n <- tab2$Num/neurite_num
+    tab2$Cell<- names(df_list)[m]
+  
+    tab3 <- apply(length_mat, 1, function(x) sum(x < thres & x > -thres, na.rm = TRUE)) %>%  table() %>% as.data.table()
+    tab3$act<- "pause"
+    names(tab3)[1]<- "Num"
+    tab3$Num <- tab3$Num %>% as.numeric()
+    tab3$pct<- tab3$N/sum(tab3$N)
+    tab3$rel_n <- tab3$Num/neurite_num
+    tab3$Cell<- names(df_list)[m]
+    
+    tab4 <- rbind(tab1, tab2, tab3)
+    tab4$Thres<- thres
+    
+    pos_neg_list[[m]] <- tab4
+  }
+
+  names(pos_neg_list)<- names(df_list)
+  
+  pos_neg_thres_list[[n]]<- assign(paste0("Thres_", thres, sep=""),pos_neg_list)
+  names(pos_neg_thres_list)[n]<- paste0("Thres_", thres, sep="")
+  
+}
+```
+
+```{r message=FALSE, warning=FALSE}
+summary_list <- list()
+
+for (n in 1: 10){
+  
+  pos_neg_list <- pos_neg_thres_list[[n]]
+  
+  pos_neg_tab_all <- pos_neg_list[[1]] 
+  
+  for (m in 2:length(pos_neg_list)) {
+    
+    df2 <- pos_neg_list[[m]] 
+    pos_neg_tab_all <- rbind(pos_neg_tab_all, df2) 
+  
+  }
+
+  tab <- pos_neg_tab_all[act == "retraction"] %>% group_by(Num) %>% rstatix::get_summary_stats(pct)
+  tab$Thres<- n*0.02
+  summary_list [[n]] <- tab 
+
+}
+
+names(summary_list) <-  names(pos_neg_thres_list)
+
+df_summary_all <- summary_list [[1]]
+
+for (n in 2: 10){
+  df_summary_all <-  rbind (df_summary_all, summary_list [[n]])
+  
+}
+
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+ggplot(df_summary_all, aes(x=Num, y=mean, group=Thres)) +
+  
+  geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd, fill=Thres),   alpha=0.05) + 
+  geom_line(aes(colour=Thres), size=1, alpha=1) +
+  
+  scale_y_continuous(  breaks = scales::pretty_breaks(n = 6))+
+  scale_x_continuous(name="Neurite_No", limits=c(0, 6), expand = c(0, 0), breaks = c(0,1,2,3,4,5,6))+
+  
+  scale_fill_viridis(discrete = F) + # scale_fill_brewer(palette = "Set2") +
+  scale_color_viridis(discrete = F)+
+
+  theme_linedraw()+
+  geom_hline(yintercept=0, linetype="dashed", color = "black")+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12), 
+        legend.position = "none") #for centering the text
+```
+
+```{r}
+ggsave(
+  "retraction_freq.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r}
+pos_neg_list <- pos_neg_thres_list$Thres_0.2
+
+pos_neg_tab_all <- pos_neg_list[[1]] 
+
+for (m in 2:length(pos_neg_list)) {
+  
+  df2 <- pos_neg_list[[m]] 
+  pos_neg_tab_all <- rbind(pos_neg_tab_all, df2) 
+
+}
+
+tab <- pos_neg_tab_all[act == "extension"]
+
+df_summary <- tab %>% group_by(Num) %>% rstatix::get_summary_stats(pct)
+
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+# remove cells in "without any outgrowth" state more than 60% of the time 
+removed <- pos_neg_tab_all[act == "extension" & Num == 0 & pct > 0.5] 
+removed_cell<- removed$Cell
+pos_neg_tab_all_removed<- pos_neg_tab_all[grep(paste(removed_cell,collapse="|"), pos_neg_tab_all$Cell , invert=TRUE) ,]
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+ggplot(data=tab, aes(x=Num, y=pct, group=Cell)) +
+  geom_line((aes(color=Cell)))+
+  geom_point((aes(color=Cell)))+ 
+scale_x_continuous(name="Neurite_No", limits=c(0, 6), breaks = c(0,1,2,3,4,5,6))+
+theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12), 
+        legend.position = "none") #for centering the text
+```
+
+```{r}
+ggsave(
+  "KO_neuriteNumFreq_avg.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+## calculate Pos-Neg table from smoothened stationary (diff) profile
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+mts_dim<- dim(selected_stationary)
+pos_neg_df <- data.frame(matrix(ncol = mts_dim[2], nrow = mts_dim[1]))
+colnames(pos_neg_df) <- selected_stationary %>% colnames()
+
+for (n in 1:mts_dim[2])  {
+    pos_neg_df[, n][selected_stationary[ , colnames(pos_neg_df)[n]] > thres] <- "Pos" # change threshold here
+    pos_neg_df[, n][selected_stationary[ , colnames(pos_neg_df)[n]] < -thres] <- "Neg" # change threshold here
+    }
+  
+#Count the growth and retraction events at each time point
+pos_neg_df$Pos <- apply(pos_neg_df, 1, function(x) length(which(x=="Pos")))
+pos_neg_df$Neg <- apply(pos_neg_df, 1, function(x) length(which(x=="Neg")))
+pos_neg_df$na <- apply(pos_neg_df, 1, function(x) length(which(is.na(x))))
+
+ggplot(pos_neg_df, aes(x=Pos)) + # change to "Neg" if retraction is of interest
+ geom_histogram( colour="black", fill="white", binwidth=0.5)
+```
+
+## Extension retraction velocity analysis 
+## We smoothen the stationary profiles first, separete outrgwoth and retraction events, and sum the changes of all neurites. (Data -> smoothing -> differencing -> Smoothening -> separate -> sum)
+```{r warning=FALSE}
+
+# Smoothen the stationary (diff) profiles and optionally filter out small length change with threshold
+
+selected_list <- mts_stationary_list # mts_stationary_list or mts_avg_list
+
+mts_stationary_pos_list <- list()
+mts_stationary_neg_list <- list()
+thres= 0.0 # change threshold here
+
+# Positive peaks only (outgrowth event)
+for (m in 1:length(selected_list)) {
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+  length_mat<- selected_list[[m]][, selected_data ]
+  
+  length_mat_avg<- length_mat %>% forecast::ma(2) %>% as.ts() # smoothening 2
+  colnames(length_mat_avg)<-colnames(length_mat)
+
+  mts_dim<- dim(length_mat_avg)
+    for (n in 1:mts_dim[2]){
+      length_mat_avg[, n][length_mat_avg[ , colnames(length_mat_avg)[n]] < thres] <- 0 
+    }
+  
+  length_mat_avg <- length_mat_avg %>% as.data.frame() 
+  length_mat_avg$sum <- length_mat_avg  %>% rowSums()  # We sum up the extent of outgrowth at each time point
+  mts_stationary_pos_list[[m]] <- length_mat_avg %>% ts(frequency = freq, start = c(0, 1)) 
+
+}
+
+# Negative peaks only (retraction event)
+for (m in 1:length(selected_list)) {
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+  length_mat<- selected_list[[m]][, selected_data ]
+  length_mat_avg<- length_mat %>% forecast::ma(2) %>% as.ts() # smoothening 2
+  colnames(length_mat_avg)<-colnames(length_mat)
+  
+  mts_dim<- dim(length_mat_avg)
+  
+    for (n in 1:mts_dim[2]){
+      length_mat_avg[, n][length_mat_avg[ , colnames(length_mat_avg)[n]] > - thres] <- 0 
+    }
+  length_mat_avg <- length_mat_avg %>% as.data.frame() 
+  length_mat_avg$sum <- length_mat_avg  %>% rowSums()  # We sum up the extent of retraction at each time point
+  mts_stationary_neg_list[[m]] <- length_mat_avg %>% ts(frequency = freq, start = c(0, 1)) 
+}
+
+```
+
+## extension and retraction lifetime (duration)
+# Extension duration
+```{r}
+thres <- 0.00
+
+list_1 <- list()
+
+for (m in 1:length(mts_stationary_pos_list)){
+  
+  df <- mts_stationary_pos_list[[m]] %>% as.data.table()
+  df <- df[, !"sum"] 
+  list_2 <-  list()
+  
+   for (n in 1: ncol(df)){
+     
+    df2 <- df[ ,..n]
+    df2$time <- seq(0, (nrow(df2)-1), 1)
+    df2 <- df2[complete.cases(df2), ] 
+    
+    df2$inside <- df2[ , 1] > thres
+    df2$start  <- ! c(FALSE, df2$inside[-nrow(df2)]) & df2$inside
+    df2$end    <- df2$inside & ! c(df2$inside[-1], FALSE)  # Not used
+    df2 <- df2[ df2$inside, ]
+    df2$group  <- cumsum(df2$start)  # Number the spells
+    colnames(df2)[1] <- "velocity"
+    
+    df3 <- plyr::ddply( df2, "group", summarize,
+                        start  = min(time),
+                        end    = max(time),
+                        length = length(velocity),
+                        mean   = mean(velocity))
+   
+    df3$neurite <- names(df)[n]
+    list_2[[n]] <- df3
+
+   }
+  
+  df3<- list_2 %>% data.table::rbindlist()
+  df3$cell<- names(mts_stationary_list)[m]
+  list_1[[m]] <- df3
+
+}
+
+extension_duration_df <- list_1 %>% data.table::rbindlist()
+extension_duration_df$cond<- "WT"
+extension_duration_df$growth<- "extension"
+extension_duration_df[grep("KO", extension_duration_df$cell), ]$cond <- "KO"
+```
+
+# Retraction duration
+```{r}
+
+list_1 <- list()
+for (m in 1:length(mts_stationary_neg_list)){
+  
+  df <- mts_stationary_neg_list[[m]] %>% as.data.table()
+  df <- df[, !"sum"] 
+  list_2 <-  list()
+  
+   for (n in 1: ncol(df)){
+     
+    df2 <- df[ ,..n]
+    df2$time <- seq(0, (nrow(df2)-1), 1)
+    df2 <- df2[complete.cases(df2), ] 
+    
+    df2$inside <- df2[ , 1] < -thres
+    df2$start  <- ! c(FALSE, df2$inside[-nrow(df2)]) & df2$inside
+    df2$end    <- df2$inside & ! c(df2$inside[-1], FALSE)  # Not used
+    df2 <- df2[ df2$inside, ]
+    df2$group  <- cumsum(df2$start)  # Number the spells
+    colnames(df2)[1] <- "velocity"
+    
+    df3 <- plyr::ddply( df2, "group", summarize,
+                        start  = min(time),
+                        end    = max(time),
+                        length = length(velocity),
+                        mean   = mean(velocity))
+   
+    df3$neurite <- names(df)[n]
+    list_2[[n]] <- df3
+
+   }
+  
+  df3<- list_2 %>% data.table::rbindlist()
+  df3$cell<- names(mts_stationary_list)[m]
+  list_1[[m]] <- df3
+
+}
+
+retraction_duration_df <- list_1 %>% data.table::rbindlist()
+retraction_duration_df$cond<- "WT"
+retraction_duration_df$growth<- "retraction"
+retraction_duration_df[grep("KO", retraction_duration_df$cell), ]$cond <- "KO"
+```
+
+# Data points at cell level
+```{r}
+duration_df <- rbind(extension_duration_df , retraction_duration_df )
+
+duration_df$length <- duration_df$length/freq
+df_summary_duration <-duration_df %>% 
+ group_by(cell, cond, growth) %>% 
+  rstatix::get_summary_stats(length) %>% as.data.table()
+
+df_summary_duration$ID<- paste (df_summary_duration$cell, df_summary_duration$cond, df_summary_duration$growth,  sep = "_")
+df_summary_duration$group<- paste (df_summary_duration$cond, df_summary_duration$growth, sep = "_")
+```
+
+```{r}
+duration_df %>% group_by(cell, cond, growth, neurite) %>% dplyr::summarise(n = n())
+```
+
+# generate pairwise comparison list
+```{r}
+my_comparisons <- df_summary_duration$group %>% unique() %>% as.character() %>% combn(2, simplify = FALSE) 
+
+my_comparisons <- list(c("WT_extension",  "KO_extension"), c("WT_retraction",  "KO_retraction"), c("WT_extension", "WT_retraction"), c("KO_extension", "KO_retraction"))
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+# my_comparisons <- list(c("axon", "minor"))
+#pj <- position_jitter(seed = 1, width = .1, height = 0)
+
+df_summary_duration  %>%  mutate(group = fct_relevel(group, "WT_extension",  "KO_extension", "WT_retraction",  "KO_retraction")) %>% 
+ggplot ( aes(x=group, y=mean, fill =cond) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, outlier.colour = NA, fill="white")+ 
+ geom_jitter(aes(), shape=16, position=position_jitter(0.1))+
+  
+  # geom_line(aes(group = Image))+
+  # geom_point() +
+  #geom_path(aes(group = cell),alpha = 0.5)+
+    
+ scale_y_continuous(expand = c(0, 0), limits = c(5,20), breaks = scales::pretty_breaks(n = 5))+ 
+# geom_signif(comparisons = my_comparisons ,test = "wilcox.test",  color="black")+
+ stat_compare_means(comparisons = my_comparisons, paired=F, method="wilcox.test", 
+                     #label.y = c(7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5), 
+                     label = "{p.adj.format}{p.adj.signif}") +
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold", angle = 90)) #for centering the text 
+```
+
+```{r}
+ggsave(
+  "DIV1_WT_KO_growth_duration_mean.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r}
+outliers <- df_summary_duration %>% 
+  group_by(cell,neurite, cond, growth) %>% 
+ rstatix::identify_outliers(mean) 
+
+df_summary_duration<- df_summary_duration[! (ID %in% outliers$ID)]
+
+```
+
+## extension and retraction velocity
+```{r}
+Ext_velocity <- list()
+Ret_velocity <- list()
+
+for (m in 1:length(mts_stationary_pos_list)){
+  
+    df <- mts_stationary_pos_list[[m]] %>% as.data.frame()
+    df [ df == 0 ] <- NA # replace zero with NA to avoid zero inflation
+    df1 <- colMeans(df, na.rm = T)  %>% as.data.frame() # calculate the average velocity through the observation window. Or matrixStats::colMedians
+    colnames(df1) <- "mean_vel"
+    df1$median_vel <- df %>% as.matrix() %>% matrixStats::colMedians(na.rm = T)  # calculate the average velocity through the observation window. Or matrixStats::colMedians
+    
+#df1$cond <- "KO"
+df1$cell <- names(mts_list)[m] %>% basename() 
+df1$Path <- names(mts_list)[m]
+df1$neurite <- rownames(df1)
+Ext_velocity [[m]] <- df1
+
+df <- mts_stationary_neg_list[[m]] %>% as.data.frame()
+ df [ df == 0 ] <- NA # replace zero with NA to avoid zero inflation
+    df2 <- colMeans(df, na.rm = T)  %>% as.data.frame() # calculate the average velocity through the observation window. Or matrixStats::colMedians
+    colnames(df2) <- "mean_vel"
+    df2$median_vel <- df2 %>% as.matrix() %>% matrixStats::colMedians(na.rm = T)  # calculate the average velocity through the observation window. Or matrixStats::colMedians
+    
+#df2$cond <- "KO"
+df2$cell <- names(mts_list)[m] %>% basename() 
+df2$Path <- names(mts_list)[m]
+df2$neurite <- rownames(df2)
+Ret_velocity [[m]] <- df2
+  
+}
+```
+
+```{r}
+Ext_velocity_df <- Ext_velocity %>% reduce(bind_rows)  
+Ext_velocity_df$Growth <- "Extension"
+Ret_velocity_df <- Ret_velocity %>% reduce(bind_rows)  
+Ret_velocity_df$Growth <- "Retraction"
+velocity_comb_df<- rbind(Ext_velocity_df, Ret_velocity_df) %>% as.data.table()
+velocity_comb_df <- velocity_comb_df[neurite != "sum"]
+
+velocity_comb_df$Cond<- "WT"
+velocity_comb_df[grep("KO", velocity_comb_df$Path), ]$Cond <- "KO"
+
+velocity_comb_df$mean_vel <- velocity_comb_df$mean_vel %>% abs()
+velocity_comb_df$median_vel <- velocity_comb_df$median_vel %>% abs()
+
+#saveRDS(velocity_comb_df, "velocity_comb_df_KO.rds")
+```
+
+# Data points at cell level
+```{r}
+df_summary_median_vel <-velocity_comb_df %>% 
+ group_by(cell, Cond, Growth) %>% 
+  rstatix::get_summary_stats(median_vel) %>% as.data.table()
+
+df_summary_median_vel$ID<- paste (df_summary_median_vel$cell, df_summary_median_vel$Cond, df_summary_median_vel$Growth,  sep = "_")
+df_summary_median_vel$group<- paste (df_summary_median_vel$Cond, df_summary_median_vel$Growth, sep = "_")
+```
+
+```{r}
+outliers <- df_summary_median_vel %>% 
+  group_by(Growth, Cond) %>% 
+ rstatix::identify_outliers(mean) 
+
+df_summary_median_vel <- df_summary_median_vel[! (ID %in% outliers$ID)]
+
+```
+
+```{r}
+df_summary_mean_vel <-velocity_comb_df %>% 
+ group_by(cell, Cond, Growth) %>% 
+  rstatix::get_summary_stats(mean_vel) %>% as.data.table()
+
+df_summary_mean_vel$ID <- paste (df_summary_mean_vel$cell, df_summary_mean_vel$Cond, df_summary_mean_vel$Growth,  sep = "_")
+df_summary_mean_vel$group <- paste (df_summary_mean_vel$Cond, df_summary_mean_vel$Growth, sep = "_")
+```
+
+```{r}
+outliers <- df_summary_mean_vel %>% 
+   group_by(Growth, Cond) %>% 
+ rstatix::identify_outliers(mean) 
+
+df_summary_mean_vel <- df_summary_mean_vel[! (ID %in% outliers$ID)]
+```
+
+# generate pairwise comparison list
+```{r}
+my_comparisons <- df_summary_median_vel$group %>% unique() %>% as.character() %>% combn(2, simplify = FALSE) 
+
+my_comparisons <- list(c("WT_Extension",  "KO_Extension"), c("WT_Retraction",  "KO_Retraction"), c("WT_Extension", "WT_Retraction"), c("KO_Extension", "KO_Retraction"))
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+# my_comparisons <- list(c("axon", "minor"))
+#pj <- position_jitter(seed = 1, width = .1, height = 0)
+
+df_summary_median_vel  %>%  mutate(group = fct_relevel(group, "WT_Extension",  "KO_Extension", "WT_Retraction",  "KO_Retraction")) %>% 
+ggplot ( aes(x=group, y=mean, fill =Cond) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, outlier.colour = NA, fill="white")+ 
+ # geom_jitter(aes(), shape=16, position=position_jitter(0.1), size=1)+
+ # geom_line(aes(group = Image))+
+  
+   geom_point() +
+  #geom_path(aes(group = cell),alpha = 0.5)+
+    
+ scale_y_continuous(expand = c(0, 0), limits = c(-0.1, 1), breaks = scales::pretty_breaks(n = 5))+ 
+# geom_signif(comparisons = my_comparisons ,test = "wilcox.test",  color="black")+
+  stat_compare_means(comparisons = my_comparisons, paired=F, method="wilcox.test", 
+                     #label.y = c(1.15, 1.2, 1.25, 1.3, 1.35, 1.4), 
+                     label = "{p.adj.format}{p.adj.signif}") +
+  
+    theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold", angle = 90)) #for centering the text 
+```
+
+```{r}
+ggsave(
+  "DIV1_WT_KO_velocity_median.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+# my_comparisons <- list(c("axon", "minor"))
+#pj <- position_jitter(seed = 1, width = .1, height = 0)
+
+df_summary_mean_vel  %>%  mutate(group = fct_relevel(group, "WT_Extension",  "KO_Extension", "WT_Retraction",  "KO_Retraction")) %>% 
+ggplot ( aes(x=group, y=mean, fill =Cond) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, outlier.colour = NA, fill="white")+ 
+  geom_jitter(aes(), shape=16, position=position_jitter(0.1), size=1)+
+ # geom_line(aes(group = Image))+
+  
+ #  geom_point() +
+  #geom_path(aes(group = cell),alpha = 0.5)+
+    
+ scale_y_continuous(expand = c(0, 0), limits = c(-0.1, 1), breaks = scales::pretty_breaks(n = 5))+ 
+# geom_signif(comparisons = my_comparisons ,test = "wilcox.test",  color="black")+
+  stat_compare_means(comparisons = my_comparisons, paired=F, method="wilcox.test", 
+                     #label.y = c(1.15, 1.2, 1.25, 1.3, 1.35, 1.4), 
+                     label = "{p.adj.format}{p.adj.signif}") +
+  
+    theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold", angle = 90)) #for centering the text 
+
+df_summary_mean_vel$group %>% table()
+```
+
+```{r}
+ggsave(
+  "DIV1_WT_KO_velocity_mean.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+# Time-lagged cross-corrleation of outgrowth and retraction profiles
+```{r warning=FALSE}
+
+length_ccf_list_2 <- list()
+
+for (m in 1:length(mts_stationary_list)) {
+  
+  df_pos <- mts_stationary_pos_list[[m]]
+  df_neg <- mts_stationary_neg_list[[m]]
+
+   length_ccf_plot <-ccf ( df_pos[, "sum"],  
+                            - df_neg[, "sum"], 
+                            type = "correlation", 
+                            na.action = na.pass, plot=F,
+                            lag.max=100) 
+  
+  length_ccf_list_2[[m]] <- length_ccf_plot 
+
+}
+
+names(length_ccf_list_2) <-  names(mts_stationary_list)
+    
+length_ccf_2 <- length_ccf_list_2[[1]][["acf"]] %>% as.data.frame()
+for (m in 2:length(length_ccf_list_2)) {
+  
+  length_ccf_2 <- cbind(length_ccf_2 , length_ccf_list_2[[m]][["acf"]])
+}
+
+colnames(length_ccf_2) <- names(length_ccf_list_2)
+length_ccf_2$lag<- c(-100:100)
+
+```
+
+```{r}
+length_ccf_KO <- length_ccf_2[grepl('KO', colnames(length_ccf_2))]
+length_ccf_WT <- length_ccf_2[!grepl('KO', colnames(length_ccf_2))]
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+selected_ccf <- length_ccf_WT %>% as.data.table()  
+selected_ccf$lag<- length_ccf_2$lag/freq
+stacked_ccf_mat <- gather(selected_ccf, Cell, ccf, -lag)
+df_summary_WT <- stacked_ccf_mat %>% group_by(lag) %>% rstatix::get_summary_stats(ccf)
+df_summary_WT$Cond <- "WT"
+
+selected_ccf <- length_ccf_KO %>% as.data.table()  
+selected_ccf$lag<- length_ccf_2$lag/freq
+stacked_ccf_mat <- gather(selected_ccf, Cell, ccf, -lag)
+df_summary_KO <- stacked_ccf_mat %>% group_by(lag) %>% rstatix::get_summary_stats(ccf)
+df_summary_KO$Cond <- "KO"
+
+df_summary <- rbind (df_summary_WT, df_summary_KO)
+```
+
+# We plot the overall outgrowth/retraction level over time
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+selected_stationary_pos <- mts_stationary_pos_list[[115]][, "sum"] 
+selected_stationary_neg <- mts_stationary_neg_list[[115]][, "sum"]
+
+ts.union(selected_stationary_pos, selected_stationary_neg) %>%  autoplot() +
+ geom_line(aes(),size=0.25)  +
+   geom_hline(yintercept=0, linetype="dashed", color = "black")+
+  
+   #geom_hline(yintercept=thres, linetype="dashed", color = "blue")+
+   #geom_hline(yintercept=-thres, linetype="dashed", color = "blue")+
+  
+   scale_y_continuous(expand = c(0, 0), limits = c(-3,3), breaks = scales::pretty_breaks(n = 7))+
+  scale_x_continuous(expand = c(0, 0), limits = c(0, 480), breaks = scales::pretty_breaks(n = 7)) + 
+  
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+```{r}
+ggsave(
+  "KO_33_ext_ret_sta.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+## Here we separate the outrgwoth and retraction events first, sum the changes of all neurites, and then do smoothening.  (Data -> smoothing -> differencing ->  separate -> sum -> smoothing) 
+```{r}
+
+selected_list <- mts_stationary_list 
+mts_stationary_sum_list <- list()
+
+thres= 0.0 # change threshold here
+
+# Positive peaks only (outgrowth event)
+for (m in 1:length(selected_list)) {
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]])) # Neurite length ("Length") only or include actin intensity (Integerated.intensity)
+  length_mat_pos<- selected_list[[m]][, selected_data ]
+  length_mat_neg<- selected_list[[m]][, selected_data ]
+  
+  mts_dim<- dim(length_mat_pos)
+  
+    for (n in 1:mts_dim[2]){
+      length_mat_pos[, n][length_mat_pos[ , colnames(length_mat_pos)[n]] < 0] <- 0 
+      length_mat_neg[, n][length_mat_neg[ , colnames(length_mat_neg)[n]] > 0] <- 0 
+    }
+  
+  length_mat_pos <- as.data.frame(length_mat_pos)
+  length_mat_neg <- as.data.frame(length_mat_neg)
+   
+  length_mat_pos$sum <- length_mat_pos  %>% rowSums()  
+  length_mat_neg$sum <- length_mat_neg  %>% rowSums()  
+  
+  length_mat_pos <- length_mat_pos %>% ts(frequency = freq, start = c(0, 1))
+  length_mat_neg <- length_mat_neg %>% ts(frequency = freq, start = c(0, 1))
+  
+  length_mat_sum <- ts.union(length_mat_pos[ ,"sum"], length_mat_neg[ ,"sum"]) 
+  
+  length_mat_sum <- length_mat_sum %>% forecast::ma(5) %>% as.ts() # # smoothening 2
+  colnames(length_mat_sum)<-c("Pos", "Neg")
+  
+  length_mat_sum [, "Pos"][length_mat_sum [, "Pos"] < thres] <- 0 
+  length_mat_sum [, "Neg"][length_mat_sum [, "Neg"] > -thres] <- 0 
+  
+  mts_stationary_sum_list[[m]] <- length_mat_sum
+
+}
+
+names(mts_stationary_sum_list)<- names(mts_stationary_list )
+
+```
+
+# Time-lagged cross-corrleation of outgrowth and retraction profiles
+```{r warning=FALSE}
+
+length_ccf_list <- list()
+
+for (m in 1:length(mts_stationary_sum_list)) {
+  
+  selected_length_sta_sum <- mts_stationary_sum_list[[m]]
+  
+ # The lines give the values beyond which the autocorrelations are (statistically) significantly different from zero.
+
+  length_ccf_plot <-ccf (selected_length_sta_sum[, "Pos"],  
+                            -selected_length_sta_sum[, "Neg"], 
+                            type = "correlation", 
+                            na.action = na.pass, plot=F,
+                            lag.max=100) 
+  
+  length_ccf_list[[m]] <- length_ccf_plot 
+  
+}
+
+names(length_ccf_list) <-  names(mts_stationary_sum_list)
+
+length_ccf <- length_ccf_list[[1]][["acf"]] %>% as.data.frame()
+for (m in 2:length(length_ccf_list)) {
+  
+  length_ccf <- cbind(length_ccf , length_ccf_list[[m]][["acf"]])
+}
+
+colnames(length_ccf) <- names(length_ccf_list)
+
+length_ccf$lag<- c(-100:100)
+
+```
+
+```{r}
+length_ccf_KO <- length_ccf[grepl('KO', colnames(length_ccf))]
+length_ccf_WT <- length_ccf[!grepl('KO', colnames(length_ccf))]
+
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+selected_ccf <- length_ccf_WT %>% as.data.table()  
+selected_ccf$lag<- length_ccf$lag/freq
+stacked_ccf_mat <- gather(selected_ccf, Cell, ccf, -lag)
+df_summary_WT <- stacked_ccf_mat %>% group_by(lag) %>% rstatix::get_summary_stats(ccf)
+df_summary_WT$Cond <- "WT"
+
+selected_ccf <- length_ccf_KO %>% as.data.table()  
+selected_ccf$lag<- length_ccf$lag/freq
+stacked_ccf_mat <- gather(selected_ccf, Cell, ccf, -lag)
+df_summary_KO <- stacked_ccf_mat %>% group_by(lag) %>% rstatix::get_summary_stats(ccf)
+df_summary_KO$Cond <- "KO"
+
+df_summary <- rbind (df_summary_WT, df_summary_KO)
+```
+
+```{r}
+ggsave(
+  "DIV1_KO_ext_ret_corr.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+# Time-lagged cross-corrleation of outgrowth and retraction profiles
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+
+```
+

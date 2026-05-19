@@ -1,0 +1,1095 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+load(file=saved_path)
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+
+```
+
+# Soma actin and actin wave frame
+```{r}
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = F)
+somaActin_list<- list()
+wave_list<- list()
+freq <- 0.5 # set frequency (1/interval)
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list))  
+{
+  soma_csv_list <- list.files(subfolder_list[n],pattern = "^soma_actin(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+   wave_csv_list <- list.files(subfolder_list[n],pattern = "wave(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+   
+   folder_wave_list<- list()
+   
+   # Reading actin wave data
+   for (k in 1:length(wave_csv_list))  
+        {
+     
+     df <- wave_csv_list[k] %>% read.csv(header = TRUE) 
+     folder_wave_list[[k]] <-  df[, grep("Slice|Frame",  colnames(df)), drop = FALSE] 
+     colnames(folder_wave_list[[k]])[1]<- "Frame"
+     names(folder_wave_list)[k]<- wave_csv_list[k] %>% basename() %>% gsub("_wave.csv", "", .)
+   
+   }
+   
+   # Reading soma actin data
+  somaActin_list[[n]]  <- soma_csv_list[1] %>% read.csv(header = TRUE)
+  wave_list[[n]]<- folder_wave_list
+
+}
+
+names(somaActin_list) <- subfolder_list %>% basename()
+names(wave_list) <- subfolder_list %>% basename()
+```
+
+# count average wave count per hour
+```{r}
+wave_list_2 <- wave_list 
+  # Reading actin wave data
+   for (k in 1:length(wave_list_2))  
+        {
+     
+    list_k <- wave_list_2[[k]]
+    
+    for (n in 1:length(list_k)){
+      
+      df <- list_k[[n]]
+      df$Cell <- names(list_k)[[n]]
+      df$Batch <- names(wave_list)[[k]]
+      list_k[[n]]<- df
+      
+    }
+    
+   df_2 <-  list_k %>% reduce(bind_rows)
+   wave_list_2[[k]] <- df_2
+
+   }
+
+wave_df <- wave_list_2 %>% reduce(bind_rows)
+wave_summary <- wave_df %>% group_by(Cell, Batch) %>% rstatix::get_summary_stats(Frame)
+wave_summary$wave_freq_hour <- wave_summary$n/((wave_summary$max-wave_summary$min)*2) * 60
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=8}
+library(colorspace)
+wave_summary  %>% 
+ggplot(aes(x=variable, y=wave_freq_hour, fill = variable)) +
+  #geom_point()
+  theme_classic()+
+  geom_violin(trim=FALSE, kernel ="gaussian", adjust=1)+
+  geom_boxplot(width=0.4, fill="white",color="black",alpha=1, outliers = F) +
+  geom_jitter(alpha=1, width=0.1) + 
+ # scale_color_continuous_sequential(palette = "Heat", begin = 0.3, end = 1)+ 
+ # scale_y_continuous(expand = c(0, 0), limits = c(0, 1.5), breaks = scales::pretty_breaks(n = 10))+ 
+ # stat_compare_means(comparisons = my_comparisons, test = "t.test", paired=F)+
+  theme_ipsum(grid = F, ticks = T) +
+ theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+#plotly::ggplotly(p)
+```
+
+```{r}
+ggsave(
+  "wave_count.pdf",
+  plot = last_plot(),
+  device = "pdf")
+#dev.off()
+```
+
+```{r}
+wave_summary %>% write_csv("DIV1_wavecount.csv")
+```
+
+```{r}
+wave_summary$polarization <- "S2"
+wave_summary<- wave_summary %>% as.data.table()
+
+S2S3_wave_count <- readRDS("S2S3_Total_wave_3.rds")%>% as.data.table()
+names(S2S3_wave_count)[[9]]<- "wave_freq_hour"
+names(S2S3_wave_count)[[2]]<- "Cell"
+S2S3_wave_count <- S2S3_wave_count[polarization == "before_wave_hour"]
+S2S3_wave_count$polarization <- "S2S3"
+
+S3_wave_count <- readRDS("wave_count_2.rds") %>% as.data.table()
+S3_wave_count$polarization <- "S3"
+names(S3_wave_count)[[15]] <- "wave_freq_hour"
+names(S3_wave_count)[[1]]<- "Cell"
+
+wave_count_S2_S2S3_S3 <- rbind(wave_summary[,.(Cell, polarization,wave_freq_hour) ], S2S3_wave_count[,.(Cell, polarization,wave_freq_hour) ], S3_wave_count[,.(Cell, polarization,wave_freq_hour) ]) 
+```
+
+```{r}
+outliers <- wave_count_S2_S2S3_S3 %>% 
+  group_by(polarization) %>% 
+ rstatix::identify_outliers(wave_freq_hour) 
+
+wave_count_S2_S2S3_S3 <- wave_count_S2_S2S3_S3 [! (Cell %in% outliers$Cell) ]
+
+wave_count_S2_S2S3_S3$polarization %>% table()
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=8}
+library(ggpubr)
+my_comparisons <- list(c("S2",   "S2S3"), c("S2S3",   "S3"),  c("S2",   "S3"))
+
+wave_count_S2_S2S3_S3  %>%  mutate(polarization = factor(polarization, levels=c("S2", "S2S3", "S3"))) %>% 
+ggplot(aes(x=polarization, y=wave_freq_hour, fill = polarization)) +
+  #geom_point()
+  theme_classic()+
+  geom_violin(trim=FALSE, kernel ="gaussian", adjust=1)+
+  geom_boxplot(width=0.2, fill="white",color="black",alpha=1, outliers = F) +
+  geom_jitter(alpha=1, width=0.1) + 
+ # scale_color_continuous_sequential(palette = "Heat", begin = 0.3, end = 1)+ 
+  scale_y_continuous(expand = c(0, 0), limits = c(-2, 14), breaks = scales::pretty_breaks(n = 8))+ 
+  stat_compare_means(comparisons = my_comparisons, test = "wilcox.test", paired=F)+
+  theme_ipsum(grid = F, ticks = T) +
+ theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+```
+```{r}
+ggsave(
+  "wave_count.pdf",
+  plot = last_plot(),
+  width = 9,
+  height = 6,
+  device = "pdf")
+#dev.off()
+```
+
+```{r}
+wave_count_S2_S2S3_S3 %>% write_csv("S2S3_wavecount.csv")
+```
+
+# subset soma actin data matching actin wave data
+```{r}
+for (n in 1:length(somaActin_list))  
+{
+  somaActin_list[[n]]<- somaActin_list[[n]][, names(somaActin_list[[n]]) %in% names(wave_list[[n]])]
+  
+}
+```
+
+# Create dataframe and assign logic value (0 for no wave or 1 for wave emerging at the soma) 
+```{r}
+
+wave_frame_list <- list()
+
+for (n in 1:length(wave_list)){
+  
+  list_1 <- wave_list[[n]]
+  list_2 <- list()
+  
+  for (k in 1:length(list_1)){
+    
+    df <- seq(1:481) %>% as.data.frame()
+    names(df)<- "Time"
+    df$Wave <- 0
+    df[df$Time %in% list_1[[k]]$Frame ,]$Wave <- 1
+    list_2[[k]] <- df$Wave %>% ts(frequency = freq, start = c(0, 1))
+    
+  }
+ names(list_2)<- names(list_1)
+ wave_frame_list[[n]] <- list_2
+  
+}
+
+names(wave_frame_list) <- names(wave_list)
+
+```
+
+```{r}
+
+wave_frame_list_2<- wave_frame_list %>%  unlist(recursive=FALSE)
+somaActin_list_2<- somaActin_list %>%  unlist(recursive=FALSE)
+
+somaActin_list_2<- somaActin_list_2 [names(wave_frame_list_2)]
+
+```
+
+# Create stationary (differential) curve of all measurements
+```{r}
+freq <- 0.5
+
+selected_list <- somaActin_list_2
+somaActin_sta_list <- list()
+
+  for (n in 1:length(selected_list))  {
+ 
+  somaActin_sta_list[[n]]<- selected_list[[n]] %>% 
+    forecast::ma(2) %>%                                    # smoothing #1
+    MTS::diffM(d=1) %>% 
+    forecast::ma(2) %>% 
+    ts(frequency = freq, start = c(0, 1))
+  
+  colnames(somaActin_sta_list[[n]])<-colnames(selected_list[[n]])
+  
+  }
+
+names(somaActin_sta_list)<- names(selected_list)
+
+```
+
+# Create data frame for visualization of selected data
+```{r  message = FALSE, warning=FALSE, fig.width=8}
+df_1 <- somaActin_sta_list[[14]] %>% as.data.frame()
+df_1$x<- df_1$x %>%  as.numeric()
+df_1[nrow(df_1)+1, ]<- "NA"
+#df_1[nrow(df_1)+1, ]<- "NA"
+df_1$x<- df_1$x %>%  as.numeric()
+
+df_2 <- wave_frame_list_2[[14]] %>% as.data.frame()
+df_1$wave_frame<- df_2$x
+df_1$Time<- (0:480)*2
+
+df_mark<- df_1 %>% subset(df_1$wave_frame == 1)
+```
+
+# check the occurance of actin waves of selected data
+```{r}
+ggplot(df_mark, aes(x=Time)) + 
+ geom_histogram(aes(), colour="black", fill="white", binwidth = 60)
+```
+# check the curve of selected stationary data
+```{r  message = FALSE, warning=FALSE, fig.width=8}
+ggplot(df_1, aes(x=Time, y=x)) +
+
+  #geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="lightgrey", alpha=1)+
+  geom_line(size=1) +
+  
+  #geom_vline(xintercept=0, linetype="dashed", color = "black")+
+  geom_hline(yintercept=0, linetype="dashed", color = "black")+
+  
+  #stat_peaks(colour = "red", ignore_threshold = 0.9) +
+  #stat_peaks(geom = "text", colour = "red", vjust = -0.5, ignore_threshold = 0.9) +
+  
+  #stat_valleys(colour = "blue", ignore_threshold = 0.9, span = 11)+
+  #stat_valleys(geom = "text", colour = "blue", angle = 45, vjust = 1.5, hjust = 1, ignore_threshold = 0.9, span = 11)+
+  
+  #scale_y_continuous(expand = c(0, 0), limits = c(-0.7, 0.7), breaks = scales::pretty_breaks(n = 7))+
+  #scale_x_continuous(expand = c(0, 0), limits = c(-50, 50), breaks = scales::pretty_breaks(n = 8)) + 
+  geom_point(data=df_mark, 
+             aes(x=Time,y=x), 
+             color='red',
+             size=2)+
+
+  theme_ipsum(grid = F, ticks = T)+ 
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+```{r}
+binned_list<-list()
+for (n in 1: length(df_mark_list)){
+  p <- df_mark_list[[n]] %>% ggplot(aes(x=Time)) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white", binwidth = 30)+
+    geom_density(alpha=.2, fill="#FF6666") 
+ 
+  binned_df <- p %>% layer_data(1)
+  binned_df$pct <- binned_df$ndensity/sum(binned_df$ndensity) 
+  binned_df$img_name <- names(df_mark_list)[n]
+  binned_list[[n]] <- binned_df
+  
+}
+
+names(binned_list) <- names(somaActin_sta_list)
+
+binned_df <- binned_list[[1]]
+for (n in 2: length(binned_list)){
+ binned_df <- rbind(binned_df, binned_list[[n]])
+}
+
+df_summary <- binned_df %>% group_by(x) %>% rstatix::get_summary_stats(count)
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=8}
+ggplot(df_summary, aes(x=x, y=mean)) +
+
+  geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="lightgrey", alpha=1)+
+  geom_line(size=1) +
+  
+  #geom_vline(xintercept=0, linetype="dashed", color = "black")+
+  #geom_hline(yintercept=0, linetype="dashed", color = "black")+
+  
+  scale_y_continuous(expand = c(0, 0), limits = c(-2, 6), breaks = scales::pretty_breaks(n = 8)) +
+  scale_x_continuous(expand = c(0, 0), limits = c(0, 960), breaks =  seq(0, 960, by = 60)) + 
+  
+  theme_ipsum(grid = F, ticks = T)+ 
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+```{r}
+ggsave(
+  "wave_count.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+#calculate the percentage of waves occuring at increasing or decreasing soma actin
+```{r}
+
+somaActin_sta_wave <- list()
+df_mark_list <- list()
+for (n in 1: length(somaActin_sta_list)){
+  
+    df_1 <- somaActin_sta_list[[n]] %>% as.data.frame()
+    df_1$x<- df_1$x %>%  as.numeric()
+    df_1[nrow(df_1)+1, ]<- "NA"
+    df_1$x<- df_1$x %>%  as.numeric()
+    
+    df_2 <- wave_frame_list_2[[n]] %>% as.data.frame()
+    df_1$wave_frame<- df_2$x
+    df_1$Time<- (0:480)*2
+    
+    df_mark<- df_1 %>% subset(df_1$wave_frame == 1) %>% as.data.table()
+    
+    df_mark$change <- "Negative"
+    df_mark[df_mark$x >0 ,]$change <- "Positive"
+    df_mark_list [[n]] <- df_mark
+    somaActin_sta_wave [[n]]<- df_mark$change %>% table() %>% as.data.frame() %>% t()
+    
+}
+
+names(df_mark_list)<- names(somaActin_sta_list)
+
+# combine the counts of Neg and Pos from all cells as single data frame
+df_1 <- somaActin_sta_wave[[1]] %>% as.data.frame()
+df_1 <- df_1[2, ]
+
+for (n in 2: length(somaActin_sta_wave)){
+  
+    df_2 <- somaActin_sta_wave[[n]] %>% as.data.frame()
+    
+    df_1 <- rbind (df_1, df_2[2, ])
+}
+
+colnames(df_1)<- c("Negative", "Positive")
+
+df_1$img_name<- names(somaActin_sta_list)
+df_1$Negative<- df_1$Negative %>% as.numeric()
+df_1$Positive<- df_1$Positive %>% as.numeric()
+
+df_1$Neg_pct<- df_1$Negative/(df_1$Negative+df_1$Positive)
+df_1$Pos_pct<- df_1$Positive/(df_1$Negative+df_1$Positive)
+
+df_1_long <- df_1 %>% pivot_longer(cols=c("Neg_pct", "Pos_pct"), values_to = "pct", names_to="change")
+```
+
+```{r, message = FALSE, warning=FALSE, fig.width=5}
+library("ggpubr")
+my_comparisons <- list( c("Neg_pct", "Pos_pct") )
+
+ggplot(df_1_long, aes(x=change, y=pct, fill=change)) + 
+  geom_violin(trim=FALSE, 
+              kernel ="gaussian", 
+              adjust=1.3)+
+  geom_boxplot(width=0.5, fill="white")  +
+  geom_point(aes(fill=change,group=img_name), position = position_dodge(0.2))+
+  geom_line(aes(group=img_name), position = position_dodge(0.2)) +
+  stat_compare_means(comparisons = my_comparisons, paired=T, method="wilcox.test")+
+  scale_y_continuous( expand = c(0, 0), limits = c(-0.2, 1.2), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+# plotly::ggplotly(p)
+```
+
+```{r}
+ggsave(
+  "awave_pos_neg.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+# cross-correlation with neurite length at individual neurite level
+```{r warning=FALSE}
+
+df_1 <- somaActin_sta_list[[1]] %>% as.data.frame()
+df_1$x<- df_1$x %>%  as.numeric()
+df_1[nrow(df_1)+1, ]<- "NA"
+#df_1[nrow(df_1)+1, ]<- "NA"
+df_1$x<- df_1$x %>%  as.numeric()
+
+df_2 <- wave_frame_list_2[[1]] %>% as.data.frame()
+df_1$wave_frame<- df_2$x %>%  as.numeric()
+df_1$Time<- (0:480)*2
+  
+ccfPlot <- ccf (df_1$x,  
+                df_1$wave_frame, 
+                type = "correlation", 
+                na.action = na.pass,
+                plot=F, 
+                lag.max=50) 
+    
+ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+
+for (n in 2:length(somaActin_sta_list)){
+  
+    df_1 <- somaActin_sta_list[[n]] %>% as.data.frame()
+    df_1$x<- df_1$x %>%  as.numeric()
+    df_1[nrow(df_1)+1, ]<- "NA"
+    #df_1[nrow(df_1)+1, ]<- "NA"
+    df_1$x<- df_1$x %>%  as.numeric()
+    
+    df_2 <- wave_frame_list_2[[n]] %>% as.data.frame()
+    df_1$wave_frame<- df_2$x %>%  as.numeric()
+    df_1$Time<- (0:480)*2
+      
+    ccfPlot_2 <- ccf (df_1$x,  
+                    df_1$wave_frame, 
+                    type = "correlation", 
+                    na.action = na.pass,
+                    plot=F, 
+                    lag.max=50) 
+      
+      ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+      
+      ccf <- cbind(ccf, ccf_2)
+  
+}
+
+colnames(ccf)<- names(somaActin_sta_list)
+ccf$lag<- c(-50:50)
+
+```
+
+```{r}
+selected_ccf <- ccf %>% as.data.table()
+
+selected_ccf$lag<- selected_ccf$lag/freq
+
+stacked_ccf_mat <- selected_ccf %>% gather(Neurite, ccf, -lag) # select which CCF of measurements to show
+df_summary <- stacked_ccf_mat %>% group_by(lag) %>% rstatix::get_summary_stats(ccf)
+```
+
+```{r}
+ggsave(
+  "somaActin_wave.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+```{r}
+df_summary %>% write_csv("somaactin_wave_corr.csv")
+```
+# cross-correlation of stationary PN data
+
+```{r warning=FALSE}
+selected_list <- comb_sta_list
+ccf_PN_list<- vector(mode = "list", length = length(all_list)+1)
+
+names(ccf_PN_list)<- c(names(all_list), "soma")
+
+for (n in 1:8){
+  
+    ccfPlot <- ccf (selected_list[[1]][,(n*2-1)],  
+                            selected_list[[1]][,(n*2)], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=50) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf (selected_list[[m]][,(n*2-1)],  
+                            selected_list[[m]][,(n*2)], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=50) 
+                            
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-50:50)
+  ccf_PN_list[[n]] <- ccf
+}
+
+```
+
+```{r warning=FALSE}
+# cross-correlation with stationary Pos_length data
+
+ccf_Poslen_list<- vector(mode = "list", length = dim(selected_list[[1]])[2]-2)
+
+names(ccf_Poslen_list)<- colnames(selected_list[[1]])[-c(1,2)] 
+
+for (n in 3:16){
+  
+    ccfPlot <- ccf (selected_list[[1]][,c("Pos_length")],  
+                            selected_list[[1]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=50) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf (selected_list[[m]][,c("Pos_length")],  
+                            selected_list[[m]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=50) 
+  
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-50:50)
+  ccf_Poslen_list[[n-2]] <- ccf
+}
+```
+
+```{r warning=FALSE}
+# cross-correlation with stationary Neg_length data
+
+ccf_Neglen_list<- vector(mode = "list", length = dim(selected_list[[1]])[2]-2)
+
+names(ccf_Neglen_list)<- colnames(selected_list[[1]])[-c(1,2)] 
+
+for (n in 3:16){
+  
+    ccfPlot <- ccf (selected_list[[1]][,c("Neg_length")],  
+                            selected_list[[1]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=50) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf (selected_list[[m]][,c("Neg_length")],  
+                            selected_list[[m]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=50) 
+  
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-50:50)
+  ccf_Neglen_list[[n-2]] <- ccf
+}
+```
+
+```{r warning=FALSE}
+# cross-correlation of actin-Lyn data
+
+ccf_ActLyn_list<- vector(mode = "list", length = 7)
+
+names(ccf_ActLyn_list)<- c(paste("Pos_", c("tip", "neurite", "Density"), sep=""), paste("Neg_", c("tip", "neurite", "Density"), sep=""), "soma")
+
+for (n in 1:7){
+  
+  pair_df<- selected_list[[1]][,grep(names(ccf_ActLyn_list)[n],  colnames(selected_list[[1]]))] 
+  
+    ccfPlot <- ccf (pair_df[ ,1],  
+                      pair_df[ ,2], 
+                      type = "correlation", 
+                      na.action = na.pass,  plot=F, 
+                      lag.max=50) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+    
+     pair_df2<- selected_list[[m]][,grep(names(ccf_ActLyn_list)[n],  colnames(selected_list[[m]]))] 
+  
+      ccfPlot_2 <- ccf (pair_df2[ ,1],  
+                          pair_df2[ ,2], 
+                          type = "correlation", 
+                          na.action = na.pass,  plot=F, 
+                          lag.max=50) 
+      
+      ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+      
+      ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-50:50)
+  ccf_ActLyn_list[[n]] <- ccf
+}
+```
+
+```{r warning=FALSE}
+# cross-correlation with soma actin
+
+ccf_Actsoma_list<- vector(mode = "list", length = 8)
+
+names(ccf_Actsoma_list)<- c(paste("Pos_", c("length", "tip_actin", "neurite_actin", "Density_actin"), sep=""), paste("Neg_", c("length","tip_actin", "neurite_actin", "Density_actin"), sep=""))
+
+for (n in 1:8){
+  
+  df1 <- selected_list[[1]][ ,"soma_actin"]
+  df2 <- selected_list[[1]][,grep(names(ccf_Actsoma_list)[n],  colnames(selected_list[[n]]))] 
+  
+    ccfPlot <- ccf (df1,  
+                      df2, 
+                      type = "correlation", 
+                      na.action = na.pass,  plot=F, 
+                      lag.max=50) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+     df1 <- selected_list[[m]][ ,"soma_actin"]
+     df2 <- selected_list[[m]][,grep(names(ccf_Actsoma_list)[n],  colnames(selected_list[[n]]))]  
+  
+      ccfPlot_2 <- ccf (df1,  
+                          df2, 
+                          type = "correlation", 
+                          na.action = na.pass,  plot=F, 
+                          lag.max=50) 
+      
+      ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+      
+      ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-50:50)
+  ccf_Actsoma_list[[n]] <- ccf
+}
+```
+
+```{r warning=FALSE}
+# cross-correlation with soma Lyn
+
+ccf_Lynsoma_list<- vector(mode = "list", length = 8)
+
+names(ccf_Lynsoma_list)<- c(paste("Pos_", c("length", "tip_Lyn", "neurite_Lyn", "Density_Lyn"), sep=""), paste("Neg_", c("length","tip_Lyn", "neurite_Lyn", "Density_Lyn"), sep=""))
+
+for (n in 1:8){
+  
+  df1 <- selected_list[[1]][ ,"soma_Lyn"]
+  df2 <- selected_list[[1]][,grep(names(ccf_Lynsoma_list)[n],  colnames(selected_list[[n]]))] 
+  
+    ccfPlot <- ccf (df1,  
+                      df2, 
+                      type = "correlation", 
+                      na.action = na.pass,  plot=F, 
+                      lag.max=50) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+     df1 <- selected_list[[m]][ ,"soma_Lyn"]
+     df2 <- selected_list[[m]][,grep(names(ccf_Lynsoma_list)[n],  colnames(selected_list[[n]]))]  
+  
+      ccfPlot_2 <- ccf (df1,  
+                          df2, 
+                          type = "correlation", 
+                          na.action = na.pass,  plot=F, 
+                          lag.max=50) 
+      
+      ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+      
+      ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-50:50)
+  ccf_Lynsoma_list[[n]] <- ccf
+}
+
+ccf_all_list<-list(PN=ccf_PN_list, Poslen=ccf_Poslen_list, Neglen=ccf_Neglen_list, ActLyn=ccf_ActLyn_list, somaActin=ccf_Actsoma_list, somaLyn=ccf_Lynsoma_list)
+
+```
+
+```{r}
+selected_ccf <- ccf_all_list$Poslen$Pos_tip_Lyn  %>% as.data.table()
+
+selected_ccf$lag<- selected_ccf$lag/freq
+
+stacked_ccf_mat <- selected_ccf %>% gather(Neurite, ccf, -lag) # select which CCF of measurements to show
+df_summary <- stacked_ccf_mat %>% group_by(lag) %>% rstatix::get_summary_stats(ccf)
+```
+
+```{r}
+ggsave(
+  "avg_2.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+# Create time-series data of total neurite length, Lyn and actin intensity/density at neurite tip, shaft, and soma. 
+```{r}
+library(dplyr)
+mts_list<- list()
+mts_avg_list <- list()
+mts_stationary_list <- list()
+
+for (n in 1:length(length_list))  {
+ 
+  mat <- length_list[[n]] %>% rowSums() %>% as.data.table() # total neurite length
+  colnames(mat) <- "sum_length"
+  
+  # get soma intensity
+  ColName <- names(length_list)[n]
+  
+  Dim <- nrow(Tip_Lyn_list[[n]])
+  
+  soma_actin_1<- soma_actin[1:Dim, ] %>% select(all_of(ColName)) %>%  as.matrix() %>% pracma::hampel(k=5)
+  mat$soma_actin <-  soma_actin_1$y
+  
+  soma_Lyn_1<- soma_Lyn[1:Dim, ] %>% select(all_of(ColName)) %>%  as.matrix() %>% pracma::hampel(k=5)
+  mat$soma_Lyn <- soma_Lyn_1$y
+  
+  mat$sum_tip_actin <- Tip_actin_list[[n]] %>% rowSums()
+  mat$sum_tip_Lyn <- Tip_Lyn_list[[n]] %>% rowSums() 
+  
+  mat$sum_neurite_actin <-  Neurite_actin_list[[n]] %>% rowSums() # total actin intensity at the whole neurite
+  mat$sum_neurite_Lyn <-  Neurite_Lyn_list[[n]] %>% rowSums() # total Lyn intensity at the whole neurite
+  
+  mat$sum_actin <- (Neurite_actin_list[[n]]- Tip_actin_list[[n]]) %>% rowSums() 
+  mat$sum_Lyn <- (Neurite_Lyn_list[[n]]- Tip_Lyn_list[[n]]) %>% rowSums()  
+  
+  mat$sum_actin_density <- mat$sum_neurite_actin/mat$sum_length # actin density at the whole neurite
+  mat$sum_Lyn_density <- mat$sum_neurite_Lyn/mat$sum_length # Lyn density at the whole neurite
+
+  mts_list[[n]]<- mat 
+  
+}
+
+names(mts_list)<- names(Tip_Lyn_list)
+
+```
+
+```{r}
+
+selected_list <- mts_list
+mts_stationary_list <- list()
+
+  for (n in 1:length(selected_list))  {
+ 
+  mts_stationary_list[[n]]<- selected_list[[n]] %>% 
+    forecast::ma(5) %>%                                    # smoothing #1
+    MTS::diffM(d=1) %>% 
+    forecast::ma(5) %>%                                    # smoothing #2                                   
+    ts(frequency = freq, start = c(0, 1))
+  
+  colnames(mts_stationary_list[[n]])<-colnames(selected_list[[n]])
+  
+  }
+
+names(mts_stationary_list)<- names(selected_list)
+
+```
+
+# cross-correlation with sum neurite length
+```{r warning=FALSE}
+
+selected_list <- mts_stationary_list
+
+ccf_sum_list<- vector(mode = "list", length = ncol(selected_list[[1]])-1)
+
+names(ccf_sum_list)<- colnames(selected_list[[1]])[-1]
+
+for (n in 2:11){
+  
+    ccfPlot <- ccf(selected_list[[1]][,1],  
+                            selected_list[[1]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=80) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf(selected_list[[m]][,1],  
+                            selected_list[[m]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=80) 
+  
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-80:80)
+  ccf_sum_list[[n-1]] <- ccf
+}
+
+```
+
+# cross-correlation of actin-Lyn data
+```{r warning=FALSE}
+
+selected_list <-mts_stationary_list
+
+ccf_sumActLyn_list<- vector(mode = "list", length = 4)
+
+names(ccf_sumActLyn_list)<- c("soma", "sum_tip", "sum_neurite", "density")
+
+for (n in 1:4){
+  
+  pair_df<- selected_list[[1]][,grep(names(ccf_sumActLyn_list)[n],  colnames(selected_list[[1]]))] 
+  
+    ccfPlot <- ccf(pair_df[ ,1],  
+                      pair_df[ ,2], 
+                      type = "correlation", 
+                      na.action = na.pass,  plot=F, 
+                      lag.max=80) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+    
+     pair_df2<- selected_list[[m]][,grep(names(ccf_sumActLyn_list)[n],  colnames(selected_list[[m]]))] 
+  
+      ccfPlot_2 <- ccf(pair_df2[ ,1],  
+                          pair_df2[ ,2], 
+                          type = "correlation", 
+                          na.action = na.pass,  plot=F, 
+                          lag.max=80) 
+      
+      ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+      
+      ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-80:80)
+  ccf_sumActLyn_list[[n]] <- ccf
+}
+
+```
+
+# cross-correlation with soma actin
+```{r warning=FALSE}
+
+selected_list <-mts_stationary_list
+
+ccf_sumActsoma_list<- vector(mode = "list", length = ncol(selected_list[[1]]))
+
+names(ccf_sumActsoma_list)<- colnames(selected_list[[1]])
+
+for (n in 1:11){
+  
+    ccfPlot <- ccf(selected_list[[1]][,2],  
+                            selected_list[[1]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=80) 
+    
+    ccf <- ccfPlot[["acf"]] %>% as.data.frame()
+  
+  for (m in 2:length(selected_list)) {
+  
+  ccfPlot_2 <- ccf(selected_list[[m]][,2],  
+                            selected_list[[m]][,n], 
+                            type = "correlation", 
+                            na.action = na.pass,  plot=F, 
+                            lag.max=80) 
+  
+  ccf_2 <- ccfPlot_2[["acf"]] %>% as.data.frame()
+  
+  ccf <- cbind(ccf, ccf_2)
+  
+  }
+    
+  colnames(ccf)<- names(selected_list)
+  ccf$lag<- c(-80:80)
+  ccf_sumActsoma_list[[n]] <- ccf
+}
+
+```
+
+```{r}
+ccf_sum_all_list<-list(sumlength=ccf_sum_list, ActLyn= ccf_sumActLyn_list, somaActin=ccf_sumActsoma_list, somaLyn=ccf_sumLynsoma_list)
+
+```
+
+```{r}
+selected_ccf <- ccf_sum_all_list$sumlength$soma_actin %>% as.data.table()
+
+selected_ccf$lag<- selected_ccf$lag/freq
+
+stacked_ccf_mat <- selected_ccf %>% gather(Neurite, ccf, -lag) 
+df_summary <- stacked_ccf_mat %>% group_by(lag) %>% rstatix::get_summary_stats(ccf, type = "common")
+```
+
+# Significance of the correlation function
+The variance of the cross-correlation coefficient under the null hypothesis of zero correlation is approx 1/n where n is the length of the series. The coefficients are also asymptotically normal. So approximate critical values (at the 5% level) are ±2/√n
+
+To reduce the effect of noise, the correlation functions for all sampling windows were averaged by a spline fit (Fig. S4b). To test whether variable relationships also contributed significantly to the window-to-window variation of the correlation function we calculated confidence intervals for the average correlation function of a particular cell in two ways: i) The 95% confidence  level  of  Pearson’s  correlation  coefficient  is  defined  by  1.96N,  with  N  denoting  the  number of samples in the time course (blue lines in Fig. S4b). ii) Variation of the correlation functions about  the  spline  fit  was  calculated  from  bootstrapping  2000  samples  from  the  residuals  to  the  spline  fit8.  
+
+The   correlation   function   for   a   cell   was   considered   insignificant   if   either   the   correlation   maximum/minimum  did  not  reach  above/below  the  95%  confidence  levels  of  Pearson’s  correlation  coefficient,  or  the  bootstrapped  95%  confidence  interval  about  the  fitted  spline  included  0  at  the  position    of    the    maximum/minimum.    Cells    without    as    significant    correlation    coefficient    maximum/minimum were eliminated from further analysis. 
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+ggplot(df_summary, aes(x=lag, y=mean)) +
+   geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="lightgrey")+
+   geom_line(size=1, alpha=1) +
+  
+   stat_peaks(colour = "red", span = 15, ignore_threshold = 0.5) +
+  stat_peaks(geom = "text", colour = "red", span = 15, ignore_threshold = 0.6, hjust = 2, angle = 0) +
+  stat_valleys(colour = "lightblue", span = 13, ignore_threshold = 0.9) +
+ stat_valleys(geom = "text", colour = "blue", span = 13, ignore_threshold = 0.9, hjust = -0.5, angle = 0) +
+  
+   theme_ipsum(grid = F, ticks = T)+ 
+   geom_vline(xintercept=0, linetype="dashed", color = "black")+
+  geom_hline(yintercept=0, linetype="dashed", color = "black")+
+   scale_y_continuous(expand = c(0, 0), limits = c(-0.5 ,0.5),  breaks = scales::pretty_breaks(n = 6))+
+   scale_x_continuous(expand = c(0, 0),  breaks = scales::pretty_breaks(n = 8), limits = c(-50,50)) +
+  
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+```{r}
+ggsave(
+  "sumLength_somaLyn.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+fig_A <- stacked_ccf_mat %>% 
+ggplot(aes(x=lag, y=ccf)) + geom_point(alpha=0.3, size=0.5) +
+   geom_line(aes(color=Cell), size=0.8)+ theme(legend.position = "none") 
+
+fig_B <-stacked_ccf_mat %>% 
+  ggplot(aes(x = lag, y = ccf, fill=Cell)) +
+    geom_area(alpha=0.5 , size=.5, colour="grey") +
+    scale_fill_viridis(discrete = T) +  scale_fill_brewer(palette = "Set2") +
+    theme_ipsum(grid = F, ticks = T)+ theme(legend.position = "none") 
+
+fig_C <-ggplot(df_summary, aes(x=Time, y=mean)) +
+   geom_line(size=1, alpha=0.8) +
+   geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="blue", alpha=0.2)
+
+ggpubr::ggarrange(fig_A,fig_B,fig_C,
+                  labels = LETTERS[1:3],
+                  ncol = 2, nrow = 2,  legend="none")
+
+```
+
+# Time-lagged cross-corrleation of outgrowth and retraction profiles
+```{r warning=FALSE}
+# constructing partial dependence (i.e., marginal effect) plots 
+library(pdp)
+theme_set(theme_bw())
+mts_avg_list[[2]][ ,c("Length.2", "Length.4")] %>%  autoplot() +
+  ylim(0, 45) +
+  ggtitle (plot_title) +
+  geom_line(aes(),size=1)  +
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+
+```
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+## Package installation
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.

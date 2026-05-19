@@ -1,0 +1,394 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+<!--
+# ED Fig 7b — Length difference induced by PA-Rac1 activation at the
+# growth cone, with 40 µM para-aminoblebbistatin vs control.
+
+## What this file does
+
+1. Reads per-cell Pre/Act/Post neurite length CSVs for two conditions:
+   - paraBlebb GC (line 99: ``rep(1:105, each=3)`` → 105 neurites)
+   - Control GC (line 108: ``rep(1:37, each=3)`` → 37 neurites)
+2. Mean-centers each ROI's Pre/Act/Post triplet.
+3. Saves ``Blebb_GC_neurite length.rds`` (line 132, note: filename has
+   a space) — per-ROI length difference.
+4. Plots paired-Wilcoxon Pre vs Act/Post (within-condition; lines 194,
+   218, 247) and unpaired t-test Control vs paraBlebb (lines 312, 346,
+   386) — 2 ggsave outputs.
+
+## Manuscript panel
+
+- **ED Fig 7b** (line 372 of ``Arp3_manuscript 20260501.docx``):
+  "Length difference induced by the activation of PA-Rac1 at the growth
+  cone treated with 40 µM para-aminoblebbistatin. **N = 68 neurites of
+  15 control cells and 104 neurites of 58 treated cells.** **p < 0.01
+  by Two-tailed **Mann-Whitney test**."
+
+Body N (105 paraBlebb + 37 control) vs published N (104 + 68):
+- 105 ≈ 104 → paraBlebb side matches (1 likely outlier filtered).
+- 37 vs 68 → **control side N is exactly half the published**. The
+  control N may come from THIS file (37) plus another source elsewhere
+  (an additional 31 control neurites from a different file).
+
+Body uses unpaired t-test + paired Wilcoxon; manuscript reports
+Mann-Whitney. **Mann-Whitney is mathematically the same as the
+unpaired Wilcoxon rank-sum test** for two independent groups — so
+the body's Wilcoxon analyses are consistent with the manuscript's
+Mann-Whitney. The body's t-test is a parametric companion likely
+shown alongside the Wilcoxon for sanity-checking (not the published
+test).
+
+Source Data sheet: ``ED Fig 7b``.
+
+## Outputs
+
+- ``Blebb_GC_neurite length.rds`` (line 132) — per-ROI Pre/Act/Post
+  length wide-format dataframe.
+- Two ``ggsave`` PDFs at lines 361, 398 (filenames not specifically
+  named in the chunk - need body context to identify).
+
+## Original G:\ source
+
+G:/Figure 3_Arp3/Fig. 3j-n_PARac1/Andor/paraBlebb/paraBlebb_GC/Neurite_length.Rmd
+-->
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggpubr)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "neurite_length.RData",  sep = "/")
+load(file=saved_path)
+
+```
+
+```{r message=FALSE}
+csv_file<- list.files(Path_1,
+                      pattern = "*.csv",
+                     recursive = TRUE,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+# dirname(Path_1)
+
+csv_list<- list()
+library(stringr)
+
+for (n in 1:length(csv_file)) 
+{
+  csv_list[[n]] <- readr::read_delim(csv_file[n], ",", escape_double = FALSE, col_names = T, trim_ws = TRUE) %>% as.data.frame()
+
+  names(csv_list)[n]<-  csv_file[n] %>% dirname() 
+  
+}
+```
+
+```{r}
+length_df <- csv_list[[1]]
+
+for (n in 2:length(csv_list)) 
+{
+  length_df <- rbind(length_df, csv_list[[n]])
+ 
+}
+
+length_df$Series<- c("Pre", "Act", "Post")
+length_df$roi <- rep(1:105, each=3)
+length_df$Length <- length_df$Length*0.222222
+
+length_df$cell <- length_df$Label %>% str_remove(regex("\\.tif.*$", ignore_case = TRUE))
+```
+
+# additional analysis for GC of control
+
+```{r}
+GC_length_Ctl_2_wide<- pivot_wider(GC_length_Ctl_2, id_cols = c("roi", "cell"), names_from = "Series", values_from = "Length")
+GC_length_Ctl_2_wide$mean<- rowMeans(GC_length_Ctl_2_wide[,c(3:5)])
+GC_length_Ctl_2_wide$Treatment<- "Control"
+GC_length_Ctl_2_wide$Diff<- GC_length_Ctl_2_wide$Act - GC_length_Ctl_2_wide$Pre
+GC_length_Ctl_2_wide$Pre <- GC_length_Ctl_2_wide$Pre - GC_length_Ctl_2_wide$mean
+GC_length_Ctl_2_wide$Act <- GC_length_Ctl_2_wide$Act - GC_length_Ctl_2_wide$mean
+GC_length_Ctl_2_wide$Post <- GC_length_Ctl_2_wide$Post - GC_length_Ctl_2_wide$mean
+```
+
+```{r}
+GC_length_wide<- pivot_wider(length_df, id_cols =  c("roi", "cell"), names_from = "Series", values_from = "Length")
+GC_length_wide$mean<- rowMeans(GC_length_wide[,c(3:5)])
+GC_length_wide$Treatment<- "Blebb"
+GC_length_wide$Diff<- GC_length_wide$Act - GC_length_wide$Pre
+GC_length_wide$Pre <- GC_length_wide$Pre - GC_length_wide$mean
+GC_length_wide$Act <- GC_length_wide$Act - GC_length_wide$mean
+GC_length_wide$Post <- GC_length_wide$Post - GC_length_wide$mean
+saveRDS(GC_length_wide, file = "Blebb_GC_neurite length.rds")
+```
+
+```{r}
+GC_length_long<- pivot_longer(GC_length_wide, cols=c(3:5), names_to = "Series", values_to="Length")
+GC_length_long$Series <- factor(GC_length_long$Series, levels=unique(GC_length_long$Series))
+
+GC_length_Ctl_2_long<- pivot_longer(GC_length_Ctl_2_wide, cols=c(3:5), names_to = "Series", values_to="Length")
+GC_length_Ctl_2_long$Series <- factor(GC_length_Ctl_2_long$Series, levels=unique(GC_length_Ctl_2_long$Series))
+
+GC_Ctl_Blebb <- rbind (GC_length_long, GC_length_Ctl_2_long) %>% as.data.table()
+
+GC_Ctl_Blebb_summary_cell <- GC_Ctl_Blebb[Series == "Pre"] %>% 
+ group_by(cell, Treatment) %>% 
+  rstatix::get_summary_stats(Diff) %>% as.data.table()
+```
+
+```{r}
+ggplot2.violinplot(data = GC_length_wide, 
+                     yName="Diff", 
+                     #xName='Series', 
+                     #groupName='Series', 
+                     kernel ="gaussian", 
+                     adjust=100,
+                     addDot=TRUE, 
+                     dotSize=1,
+                     dotPosition="jitter", 
+                     jitter=0.1, trim=F) +
+    
+  geom_boxplot(width=0.1, fill="white") +
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+ # stat_compare_means(comparisons = my_comparisons, paired=T, method="wilcox.test")+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+```{r message=FALSE, warning=FALSE}
+library(ggpubr)
+
+my_comparisons <- list( c("Pre", "Act"), c("Pre", "Post"), c("Act", "Post") )
+
+#neurite_length_long<- neurite_length_long%>% subset(neurite_length_long$Series != "Post")
+
+ggplot(GC_length_long, aes(x=Series, y=Length, fill=Series)) + 
+  geom_violin(trim=FALSE, 
+              kernel ="gaussian", 
+              adjust=1.3)+
+  #geom_boxplot(width=2, fill="white")  +
+  geom_point(aes(fill=Series,group=roi), position = position_dodge(0.2))+
+  geom_line(aes(group=roi), position = position_dodge(0.2)) +
+  stat_compare_means(comparisons = my_comparisons, paired=T, method="wilcox.test")+
+  scale_y_continuous( expand = c(0, 0), limits = c(-10, 15), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+# plotly::ggplotly(p)
+```
+
+```{r, message = FALSE, warning=FALSE, fig.width=5}
+
+my_comparisons <- list( c("Pre", "Act") )
+
+GC_length_long<- GC_length_long%>% subset(GC_length_long$Series != "Post")
+
+ggplot(GC_length_long, aes(x=Series, y=Length, fill=Series)) + 
+  geom_violin(trim=FALSE, 
+              kernel ="gaussian", 
+              adjust=1.3)+
+  #geom_boxplot(width=2, fill="white")  +
+  geom_point(aes(fill=Series,group=roi), position = position_dodge(0.2))+
+  geom_line(aes(group=roi), position = position_dodge(0.2)) +
+  stat_compare_means(comparisons = my_comparisons, paired=T, method="wilcox.test")+
+  scale_y_continuous( expand = c(0, 0), limits = c(-15, 15), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+# plotly::ggplotly(p)
+```
+# comparing control with paraBlebb treated samples
+```{r}
+# GC_length_wide_Ctl <- read_rds(file="Control_GC_neuriteLength.rds")
+length_compare_wide <-  rbind(GC_length_wide_Ctl, GC_length_wide, GC_length_Ctl_2_wide) %>% as.data.table()
+
+length_compare_wide$Diff_2 <-  length_compare_wide$Post-length_compare_wide$Pre # difference between Post and Pre
+length_compare_wide$Diff_3 <-  length_compare_wide$Post-length_compare_wide$Act # difference between Post and Act
+
+#length_compare_wide <-  length_compare_wide  %>% subset(length_compare_wide$Diff_2 > -2)
+
+length_compare_wide$Treatment %>% table()
+```
+
+```{r}
+length_compare_wide$Growth<- "Retraction"
+length_compare_wide[Act > 2,  ]$Growth<- "Extension"
+
+df_wide <- length_compare_wide[,. (Growth, Treatment)] %>% 
+  table() %>% 
+  as.data.frame() %>% 
+  pivot_wider(id_cols = "Treatment", names_from = "Growth", values_from = "Freq")
+
+library(lsmeans)
+
+example.glm = glm(cbind(Extension, Retraction) ~ Treatment, data = df_wide,  family = binomial())
+
+lsmeans(example.glm, pairwise ~ Treatment)
+
+```
+
+# Comparison at neurite level
+```{r message = FALSE, warning=FALSE, fig.width=10}
+my_comparisons <- list( c("Control", "Blebb") )
+pj <- position_jitter(seed = 1, width = .05, height = 0)
+
+length_compare_wide[Diff >-8] %>% 
+  
+ggplot ( aes(x=Treatment, y=Diff, fill=Treatment) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, outlier.colour = NA, fill="white")+ 
+
+#geom_jitter(aes(), shape=16, position=position_jitter(0.1))+ #aes(color = batch)
+   geom_point(aes(fill=Treatment), position = pj)+ 
+  
+# geom_line(aes(group=cell), position = pj, alpha = 0.2) +
+# geom_path(aes(group = cell),alpha = 0.2)+
+    
+#scale_y_continuous(expand = c(0, 0), limits = c(-10, 20), breaks = scales::pretty_breaks(n = 5))+ 
+stat_compare_means(comparisons = my_comparisons, paired=F, method="t.test") +
+
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold", angle = 0)) #for centering the text 
+
+length_compare_wide[Diff >-8]$Treatment %>% table()
+```
+
+# Comparison at cell level
+```{r message = FALSE, warning=FALSE, fig.width=10}
+my_comparisons <- list( c("Control", "Blebb") )
+pj <- position_jitter(seed = 1, width = .05, height = 0)
+
+GC_Ctl_Blebb_summary_cell %>% 
+  
+ggplot ( aes(x=Treatment, y=mean, fill=Treatment) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, outlier.colour = NA, fill="white")+ 
+  
+#geom_jitter(aes(), shape=16, position=position_jitter(0.1))+ #aes(color = batch)
+   geom_point(aes(fill=Treatment), position = pj)+ 
+  
+# geom_line(aes(group=cell), position = pj, alpha = 0.2) +
+# geom_path(aes(group = cell),alpha = 0.2)+
+    
+#scale_y_continuous(expand = c(0, 0), limits = c(-10, 20), breaks = scales::pretty_breaks(n = 5))+ 
+stat_compare_means(comparisons = my_comparisons, paired=F, method="t.test") +
+
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold", angle = 0)) #for centering the text 
+
+GC_Ctl_Blebb_summary_cell$Treatment %>% table()
+```
+
+```{r}
+ggsave(
+  "PaRac1_BlebbvsCtl_GC.pdf",
+  width=8, height=12, 
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r, message = FALSE, warning=FALSE, fig.width=8}
+library(easyGgplot2)
+my_comparisons <- list( c("Control", "Blebb") )
+
+ ggplot2.violinplot(data = length_compare_wide, 
+                     yName="Diff_2", 
+                     xName='Treatment', 
+                     groupName='Treatment', 
+                     kernel ="gaussian", 
+                     adjust=100,
+                     addDot=TRUE, 
+                     dotSize=1,
+                     dotPosition="jitter", 
+                     jitter=0.1, trim=F) +
+    
+  geom_boxplot(width=0.1, fill="white") +
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  stat_compare_means(comparisons = my_comparisons, paired=F, method="t.test")+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+
+```
+
+```{r}
+ggsave(
+  "PaRac1_BlebbvsCtl_2.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "neurite_length.RData",  sep = "/")
+save.image(file=saved_path)
+
+```

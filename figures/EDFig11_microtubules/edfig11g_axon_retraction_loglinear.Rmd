@@ -1,0 +1,192 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(data.table)
+library(readxl)
+library(dplyr)
+library(vcd)      # For assocstats (Chi-square + Cramér’s V)
+library(MASS)     # For log-linear models
+library(pracma)
+#library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(colorspace)
+library(ggpubr)
+library(ggmosaic)
+
+```
+
+
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(Path_1)
+saved_path <- paste(Path_1, "Axon_retraction_count.RData",  sep = "/")
+load(file=saved_path)
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+```
+
+# save environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "Axon_retraction_count.RData",  sep = "/")
+save.image(file=saved_path)
+```
+
+```{r}
+axon_kink <- read_excel("CK666_axon_retraction_count_3.xlsx", range = "A1:G128") %>% as.data.table()
+```
+
+
+```{r}
+tab_abc <- xtabs(~ Axon_kinks + Axon_retraction + DIV, data = axon_kink)
+
+
+# Fit log-linear model with all interactions (saturated model)
+model_saturated <- loglm(~ Axon_kinks * Axon_retraction * DIV, data = tab_abc)
+summary(model_saturated)
+
+# Fit reduced model without 3-way interaction
+model_reduced <- loglm(~ Axon_kinks * Axon_retraction + Axon_kinks * DIV + Axon_retraction * DIV, data = tab_abc)
+summary(model_reduced)
+
+# Compare models (check if 3-way interaction is significant)
+anova(model_reduced, model_saturated)
+```
+```{r}
+# Convert contingency table to data frame
+df_counts <- as.data.frame(tab_abc)
+
+# Fit Poisson regression with pairwise interactions only
+glm_reduced <- glm(Freq ~ Axon_kinks * Axon_retraction + Axon_kinks * DIV + Axon_retraction * DIV, family = poisson, data = df_counts)
+
+summary(glm_reduced)
+
+```
+
+
+```{r}
+# A vs B
+tab_ab <- table(axon_kink$Minor_kinks, axon_kink$Minor_retraction)
+print(tab_ab)
+chisq.test(tab_ab, simulate.p.value = T)
+assocstats(tab_ab)  # includes Cramér’s V
+
+vcd::mosaic(~ Axon_kinks + Axon_retraction, data = axon_kink, shade = TRUE)
+```
+
+
+```{r}
+# A vs C
+tab_ac <- table(axon_kink$Minor_kinks, axon_kink$DIV)
+print(tab_ac)
+chisq.test(tab_ac, simulate.p.value = T)
+assocstats(tab_ac)
+
+vcd::mosaic(~ DIV + Axon_kinks, data = axon_kink, shade = TRUE)
+```
+
+
+```{r}
+# B vs C
+tab_bc <- table(axon_kink$Axon_retraction, axon_kink$DIV)
+print(tab_bc)
+chisq.test(tab_bc, simulate.p.value = T)
+assocstats(tab_bc)
+
+vcd::mosaic(~ DIV + Axon_retraction, data = axon_kink, shade = TRUE)
+```
+```{r}
+ggplot(data = axon_kink) +
+  geom_mosaic(aes(x = product(DIV), fill = Minor_kinks), na.rm = TRUE) +
+  # labs(x = "Axon_kinks and Axon_retraction", fill = "DIV") +
+#  theme_minimal() + 
+scale_fill_brewer(palette = "Set2")+
+ theme_ipsum(grid = F, ticks = T) +
+ theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold"), axis.text.x = element_text(angle = 0)) #for centering the text 
+```
+
+```{r}
+ggsave(
+  "DIV_Minor_kinks.pdf",
+  plot = last_plot(),
+  device = "pdf")
+
+```
+
+```{r}
+ggplot(data = axon_kink) +
+  geom_mosaic(aes(x = product(DIV), fill = Axon_retraction), na.rm = TRUE) +
+  # labs(x = "Axon_kinks and Axon_retraction", fill = "DIV") +
+#  theme_minimal() + 
+scale_fill_brewer(palette = "Set2")+
+ theme_ipsum(grid = F, ticks = T) +
+ theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold"), axis.text.x = element_text(angle = 0)) #for centering the text 
+```
+
+```{r}
+ggsave(
+  "DIV_retraction.pdf",
+  plot = last_plot(),
+  device = "pdf")
+
+```
+```{r}
+ggplot(data = axon_kink) +
+  geom_mosaic(aes(x = product(Minor_retraction), fill = Minor_kinks), na.rm = TRUE) +
+  # labs(x = "Axon_kinks and Axon_retraction", fill = "DIV") +
+#  theme_minimal() + 
+scale_fill_brewer(palette = "Set2")+
+ theme_ipsum(grid = F, ticks = T) +
+ theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold"), axis.text.x = element_text(angle = 0)) #for centering the text 
+```
+
+```{r}
+ggsave(
+  "Minor_kink_retraction.pdf",
+  plot = last_plot(),
+  device = "pdf")
+
+```

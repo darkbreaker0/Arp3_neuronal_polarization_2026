@@ -1,0 +1,101 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+<!--
+================================================================================
+file_sorting.Rmd
+================================================================================
+
+# Helper utility: sorts microscopy TIFF files into per-cell subfolders.
+# Used as the pre-processing step for many G:\ datasets before any
+# analysis Rmd is run.
+
+## What this file does
+
+For each ``*.tif`` in the file's working directory:
+1. Lists all TIFF files (``list.files`` filtered by ``grepl("tif", ...)``).
+2. Creates ``Cell_NN`` subfolders (NN = 01, 02, ... zero-padded).
+3. Moves files into the matching ``Cell_NN`` folder based on
+   filename convention (the original ``200730_TC_proto*`` etc. naming
+   embeds the cell number).
+
+## Manuscript panel
+
+**None — this is a utility helper, not a panel producer.** It is the
+pre-analysis file-sorting step that runs ONCE per imaging dataset
+before any of the analysis Rmds open that dataset's CSVs.
+
+## Why it lives in helpers/
+
+This file has the same body as ~10 sibling ``File_sorting.Rmd`` files
+across G:\Figure*/* folders (10-copy hash group). One canonical copy
+is kept in ``helpers/`` to avoid 10x duplication in the repo. The G:\
+sibling copies are pre-existing and untouched.
+
+## Beginner notes
+
+This file uses ``filesstrings::file.move()`` (NOT base ``file.rename``)
+to handle cross-drive moves cleanly. Knit-time this file IS
+destructive of the working directory — it physically moves files.
+Don't knit casually; only run it on a fresh imaging directory that
+needs to be sorted.
+
+## Original G:\ source (canonical of 10-copy hash group)
+
+G:/Figure S3_Arp3/Fig. S3b/ActinRF_nested_Lifeact/241107_Lifeact_nested/File_sorting.Rmd
+
+================================================================================
+-->
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+#library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+```
+
+```{r}
+
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+
+files <- list.files(Path_1, full.names = TRUE)
+
+# Create subfolders
+paste(Path_1, "log",  sep = "/") %>% dir.create() 
+paste(Path_1, "decon",  sep = "/") %>% dir.create() 
+paste(Path_1, "raw",  sep = "/") %>% dir.create() 
+
+# Move files with size less than 1MB to 'log'
+small_files <- files[grepl(".txt|.joblog|.log", files)]
+fs::file_move(small_files, paste(Path_1, "log",  sep = "/") )
+
+# Move files with names containing 'D3D' to 'decon'
+d3d_files <- files[grepl("R3D_D3D.dv", files)]
+fs::file_move(d3d_files, paste(Path_1, "decon",  sep = "/"))
+
+# Move files with names containing 'R3D.dv' to 'raw'
+files <- list.files(Path_1, full.names = TRUE)
+r3d_files <- files[grepl("R3D.dv", files)]
+fs::file_move(r3d_files, paste(Path_1, "raw",  sep = "/"))
+
+```
+

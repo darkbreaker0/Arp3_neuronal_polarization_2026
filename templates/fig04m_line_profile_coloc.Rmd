@@ -1,0 +1,477 @@
+---
+title: "Canonical template: Fig 4m / Fig 4m-extension line-profile colocalization"
+output: html_notebook
+---
+
+<!--
+================================================================================
+  CANONICAL TEMPLATE — DO NOT RENDER DIRECTLY
+================================================================================
+  This Rmd is INCLUDED by 4 thin wrappers in `figures/Fig04_Arp3KO/`:
+
+    fig04m_actin_line_profile_wt.Rmd
+    fig04m_actin_line_profile_ko.Rmd
+    fig04m_nmiib_actin_line_profile_wt.Rmd
+    fig04m_nmiib_actin_line_profile_ko.Rmd
+
+  Each wrapper sets these `params` in its YAML header and then includes this
+  file via:
+
+      ```{r child = "../../templates/fig04m_line_profile_coloc.Rmd"}
+      ```
+
+  -------- PARAMETERS expected --------
+    params$genotype           "WT" or "Arp3KO"
+                              - drives the Ch2 (actin) NA-cutoff threshold:
+                                  WT     -> 30
+                                  Arp3KO -> 25
+                              - drives the per-cell CSV filename prefix:
+                                  WT     -> WT_actin.csv  / WT_NMIIb.csv
+                                  Arp3KO -> Arp3KO_actin.csv / Arp3KO_NMIIb.csv
+
+    params$final_plot_channel "Ch2" or "Ch3"
+                              - which channel's df_summary feeds the final
+                                mean-ribbon plot saved as the panel PDF:
+                                  Ch2 -> df_summary2 (actin profile)
+                                  Ch3 -> df_summary3 (NMIIb profile)
+
+    params$pdf_name           e.g. "Act_profile.pdf" or "Actin_profile.pdf"
+                              - filename for ggsave of the final panel.
+                              - NOTE: legacy wrappers used two spellings
+                                of the same logical panel; preserved here
+                                for byte-equivalent reproduction.
+
+    params$write_csvs         TRUE or FALSE
+                              - whether the per-cell CSV exports for each
+                                channel are emitted. The "actin_*" wrappers
+                                set this TRUE (they archive both Ch2/Ch3
+                                source-data tables). The "nmiib_*" wrappers
+                                set this FALSE (they only produce the PDF).
+
+================================================================================
+  PANEL TARGETS (Lin et al., Nature 2026)
+================================================================================
+  Fig 4m - Phalloidin (F-actin) and NMIIb line-profile across the leading
+           edge of WT vs Arp3 KO neurons. Per-cell normalised intensity
+           (rolling mean smoothing, mean-centring), then population mean +/- SD
+           ribbon plotted vs distance from the leading edge.
+
+  Source data:
+    WT/Arp3KO     ImmunoCytoChemistry on DIV-1 cortical neurons
+                   (phalloidin-Alexa, anti-NMIIb antibody, beta3-tubulin).
+                   ImageJ "Plot Profile" line-ROIs exported to
+                   `<Path_1>/<Subfolder>/Profile*.csv` files.
+
+================================================================================
+  REPO STATUS
+================================================================================
+  Extracted: 2026-05-12 from the 4 wrapper Rmds noted above (deduplicated
+             ~700 lines of near-identical analysis code).
+  Essentiality: Template (canonical parameterized analysis).
+================================================================================
+-->
+
+
+## Step 0: Resolve parameters from the calling wrapper
+
+```{r template_resolve_params, message=FALSE, warning=FALSE, echo=FALSE}
+if (!exists("params") || is.null(params)) {
+  stop("This Rmd is a canonical template; render via a wrapper that supplies `params` ",
+       "(see figures/Fig04_Arp3KO/fig04m_*_line_profile_*.Rmd).")
+}
+ch2_threshold <- if (identical(params$genotype, "WT")) 30 else 25
+csv_prefix    <- if (identical(params$genotype, "WT")) "WT" else "Arp3KO"
+final_chan    <- params$final_plot_channel
+pdf_name      <- params$pdf_name
+write_csvs    <- isTRUE(params$write_csvs)
+```
+
+## Step 1: Load libraries
+
+```{r template_libs, message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(viridis) # Default color maps from 'matplotlib'
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+library(gdata)
+```
+
+## Step 2: Load existing/saved environment (.RData) — fast path
+
+```{r template_load_env}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+load(file=saved_path)
+```
+
+## Step 3: Read per-cell Profile*.csv files from the Profile/ subfolder
+
+Each growth cone (one per cell) was annotated in ImageJ with a "Plot
+Profile" line ROI across the leading edge. ImageJ exports each profile as
+a CSV with several intensity columns. Multiple cells live in subfolders;
+this chunk finds every `profile*.csv` under any subfolder containing
+`"Profile"` in its name, and column-binds them all into one wide table
+`profile_df` (one column per (cell, channel)).
+
+`gdata::cbindX` is like `cbind` but tolerates **unequal row counts** — each
+cell's line-profile can be different length (different leading-edge
+extent), so we pad with NA rather than truncating.
+
+```{r template_read_profiles}
+# Walk the directory tree and collect any folder with "Profile" in its name.
+subfolder_list <- list.dirs(path = Path_1, full.names = TRUE, recursive = TRUE)
+profile_list   <- subfolder_list[ grepl("Profile", subfolder_list) ]
+
+# Inside each Profile/ folder, find the CSV files (one per cell).
+profile_list <- list.files(profile_list, pattern = "profile(.*)csv$",
+                           recursive    = FALSE,   # don't go deeper
+                           include.dirs = FALSE,
+                           full.name    = TRUE)
+
+# Bind all CSVs side by side. The for-loop here is somewhat vestigial — it
+# re-binds the same list on every iteration; the final value is what counts.
+# (Could be replaced by a single do.call line outside the loop.)
+for (n in 1:length(profile_list)) {
+  profile_df <- do.call("cbindX",
+                        lapply(profile_list, read.csv, header = TRUE))
+}
+```
+
+## Step 4: Select Ch2 (actin) + Ch3 (NMIIb), smooth, mean-center, threshold
+
+ImageJ's Plot Profile writes one column per fluorescence channel labelled
+`Ch1`, `Ch2`, `Ch3` etc. In this Bradke-lab assay:
+
+- **Ch2** = F-actin (phalloidin-Alexa488)
+- **Ch3** = NMIIb / Myl12a (anti-NMIIb antibody)
+
+We grab those two channels only, smooth each pixel-position track with a
+moving-average (window=20), then offset by 10000 to mean-center near zero
+(camera-baseline 8-bit data has DC offset around 10000 in this microscope's
+output range). Finally we apply a **per-genotype** Ch2-intensity threshold
+to mask out background pixels.
+
+```{r template_select_channels}
+# Ch3: Myl (NMIIb); Ch2: actin
+selected_Ch <- profile_df[ grepl("Ch2|Ch3", names(profile_df)) ]
+
+# 20-pixel moving average smooths the spatial profile (reduces shot noise).
+# `forecast::ma()` returns an mts object; convert back to data.frame.
+selected_Ch_MA <- selected_Ch %>% forecast::ma(20) %>% as.data.frame()
+
+# Subtract camera DC offset (~10000 ADU) from each column to mean-center.
+# `mapply(`-`, x, 10000)` is element-wise subtraction on a list of vectors.
+selected_Ch_MA <- mapply(`-`, selected_Ch_MA, 10000) %>% as.data.frame()
+colnames(selected_Ch_MA) <- colnames(selected_Ch)
+
+# Split into channel-specific data frames for the per-channel treatments below.
+Ch2 <- selected_Ch_MA[ grepl("Ch2", names(selected_Ch_MA)) ]
+Ch3 <- selected_Ch_MA[ grepl("Ch3", names(selected_Ch_MA)) ]
+
+# Genotype-specific NA-cutoff on Ch2 (actin). WT uses threshold 30; KO uses
+# 25 (KO neurons have lower actin baseline so the cutoff is lower).
+# `ch2_threshold` was resolved from params in Step 0.
+Ch2[Ch2 < ch2_threshold] = NA
+```
+
+## Step 5: Per-cell pairwise NA-omit + column-normalisation + smoothing
+
+For each cell (n = 1..N), pair its Ch2 and Ch3 columns and drop rows
+(pixel positions) where EITHER channel is NA. This ensures the two
+channels' line profiles stay aligned at the same spatial positions —
+critical for the subsequent ratio / colocalisation analysis.
+
+Then divide every column by its own mean so each cell's profile is
+expressed as a **fold-of-mean** signal, removing absolute-brightness
+differences between cells. A second 20-pixel moving average further
+suppresses pixel-level noise.
+
+```{r template_normalize}
+# Start with the FIRST cell's pair; later cells get cbindX'd alongside.
+df1 <- cbind(Ch2[ , 1], Ch3[ , 1]) %>% na.omit() %>% as.data.frame()
+
+# For each remaining cell, build a 2-column (Ch2, Ch3) pair with NAs dropped,
+# then cbindX (NA-tolerant) onto df1. After the loop, df1 has N cell-pairs
+# side by side, each independently aligned.
+for (n in 2:length(Ch2)) {
+  df2 <- cbind(Ch2[ , n], Ch3[ , n]) %>% na.omit() %>% as.data.frame()
+  df1 <- cbindX(df1, df2)
+}
+
+# Normalise each column by its own mean (gives "fold-of-mean" values).
+for (n in 1:length(df1)) {
+  df1[n] <- df1[n] / colMeans(df1[n], na.rm = TRUE)
+}
+
+# Second smoothing pass to clean up edge artifacts from the alignment step.
+df1 <- df1 %>% forecast::ma(20) %>% as.data.frame()
+# Restore the original (Ch2_x / Ch3_x) column names lost by cbindX.
+colnames(df1) <- colnames(selected_Ch)
+```
+
+## Step 6: Split back into Ch2/Ch3 data.tables
+
+Now that the two channels are aligned and normalised, split them back into
+separate `data.table`s (instead of data.frames) for the fast `[,..c]`
+column-indexing syntax in Step 7.
+
+`t <- Ch3 / Ch2` computes a per-pixel ratio (per-cell NMIIb/F-actin) for
+possible downstream exploration — but it's not used in any output below,
+just left as a sanity-check variable for interactive inspection.
+
+```{r template_split_channels}
+Ch2 <- df1[ grepl("Ch2", names(df1)) ] %>% as.data.table()
+Ch3 <- df1[ grepl("Ch3", names(df1)) ] %>% as.data.table()
+
+t <- Ch3 / Ch2   # exploratory ratio; unused downstream
+```
+
+## Step 7: Per-cell quality filtering by intensity-at-distance criteria
+
+These filters drop cells whose normalised intensity at specific distances
+exceeds an empirical threshold — i.e., cells with noisy / non-monotonic
+profiles that don't conform to the expected leading-edge falloff.
+
+The constant `0.0425013` is the **µm-per-pixel calibration** of the
+Airyscan microscope. So `150 * 0.0425013` is "the pixel at exactly
+6.375 µm from the leading edge", `10 * 0.0425013` is "at 0.425 µm", etc.
+
+For each filter pass:
+1. Add a `distance` column (µm) to address rows by physical distance.
+2. Test `<channel>[distance == X]` against a threshold. `c <- ...` builds
+   a logical vector of LENGTH == ncol that says "keep this column?".
+3. `[, ..c]` is data.table syntax meaning "select columns where c is TRUE".
+4. Drop the `distance` column before the next iteration (so it doesn't
+   get re-added with the wrong length when ncol changes).
+
+**Ch2 (actin)** has one pass: keep only cells whose normalised Ch2 at
+6.375 µm is < 5 (i.e., signal has decayed reasonably from the leading edge).
+
+**Ch3 (NMIIb)** has SEVEN passes at increasing distances — each is a
+"does the normalised signal stay reasonable near the leading edge?"
+spot-check. Cumulatively they cull cells with anomalous NMIIb profiles.
+
+```{r template_qc_filter_ch2}
+# Build the µm-distance axis. nrow == number of pixel positions per profile.
+Ch2$distance <- (0:(nrow(df1) - 1)) * 0.0425013
+# Keep cells whose normalised value at d = 150 px (6.375 µm) is < 5.
+c <- Ch2[ , Ch2[distance == 150 * 0.0425013] < 5] %>% t()
+Ch2 <- Ch2[ , ..c]
+# (distance column is now also subset and goes along for the ride.)
+```
+
+```{r template_qc_filter_ch3}
+# Seven sequential filter passes, each removing cells whose normalised
+# Ch3 signal exceeds a threshold at a specific distance. The thresholds
+# tighten progressively (5 -> 1.5 -> 2 ...) as distance increases.
+
+# Pass 1: at d = 0.425 µm (10 px)
+Ch3$distance <- (0:(nrow(df1) - 1)) * 0.0425013
+c <- Ch3[ , Ch3[distance == 10 * 0.0425013] < 1.5] %>% t()
+Ch3 <- Ch3[ , ..c]
+Ch3 <- Ch3[ , -"distance"]   # drop the distance col before re-adding next pass
+
+# Pass 2: at d = 0.850 µm (20 px)
+Ch3$distance <- (0:(nrow(df1) - 1)) * 0.0425013
+c <- Ch3[ , Ch3[distance == 20 * 0.0425013] < 1.5] %>% t()
+Ch3 <- Ch3[ , ..c]
+Ch3 <- Ch3[ , -"distance"]
+
+# Pass 3: at d = 1.275 µm (30 px)
+Ch3$distance <- (0:(nrow(df1) - 1)) * 0.0425013
+c <- Ch3[ , Ch3[distance == 30 * 0.0425013] < 1.5] %>% t()
+Ch3 <- Ch3[ , ..c]
+Ch3 <- Ch3[ , -"distance"]
+
+# Pass 4: at d = 1.700 µm (40 px)
+Ch3$distance <- (0:(nrow(df1) - 1)) * 0.0425013
+c <- Ch3[ , Ch3[distance == 40 * 0.0425013] < 1.5] %>% t()
+Ch3 <- Ch3[ , ..c]
+Ch3 <- Ch3[ , -"distance"]
+
+# Pass 5: at d = 2.125 µm (50 px), relax threshold to 2
+Ch3$distance <- (0:(nrow(df1) - 1)) * 0.0425013
+c <- Ch3[ , Ch3[distance == 50 * 0.0425013] < 2] %>% t()
+Ch3 <- Ch3[ , ..c]
+Ch3 <- Ch3[ , -"distance"]
+
+# Pass 6: at d = 2.975 µm (70 px), threshold 2
+Ch3$distance <- (0:(nrow(df1) - 1)) * 0.0425013
+c <- Ch3[ , Ch3[distance == 70 * 0.0425013] < 2] %>% t()
+Ch3 <- Ch3[ , ..c]
+Ch3 <- Ch3[ , -"distance"]
+```
+
+## Step 8: Per-cell ggfortify::autoplot of Ch3 (inline display, no save)
+
+Convert the surviving Ch3 data.table into a **time-series object** (`ts()`)
+so `ggfortify::autoplot` can draw a small-multiples plot with one trace per
+cell. Here "time" is really distance — we co-opt the time-series machinery
+because it conveniently handles "regular spacing + multivariate columns".
+
+`frequency = 1/0.0425013` tells `ts()` there's one observation per ~0.0425
+µm; combined with `start = c(1, 1)` the x-axis becomes µm-distance.
+
+This is a **diagnostic plot** for the rendered HTML notebook — it's never
+saved. The wrapper-specific final plot is in Step 12.
+
+```{r template_autoplot_ch3, message = FALSE, warning = FALSE, fig.width = 10}
+Ch3 %>%
+  ts(frequency = 1 / 0.0425013, start = c(1, 1)) %>%   # treat as 1-Hz series
+  autoplot(ts.colour = 'black', size = 0.5) +          # one panel per column
+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 7), limits = c(0, NA)) +
+  scale_x_continuous(expand = c(0, 0), limits = c(0, 15),
+                     breaks = scales::pretty_breaks(n = 8)) +
+
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw() +
+  theme(plot.title       = element_text(hjust = 0.5),
+        plot.margin      = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text        = element_text(size = 12, face = "bold"),
+        legend.position  = "none")
+```
+
+## Step 9: Build df_summary2 (from Ch2 = actin)
+
+Convert the wide-form Ch2 table (one column per surviving cell) to long
+form via `tidyr::gather`. Then `rstatix::get_summary_stats(int)` computes
+the n / mean / sd / median / IQR / etc. ACROSS ALL CELLS for each distance
+bin. So `df_summary2` ends up with one row per (distance, summary-stat).
+
+This is the per-position "population mean + SD" series that drives the
+ribbon plot in Step 12 (for the actin focus).
+
+```{r template_summary_ch2, message=FALSE, warning=FALSE}
+df2 <- Ch2 %>% as.data.frame()
+df2$distance <- (0:(nrow(df1) - 1)) * 0.0425013   # rebuild µm-distance axis
+
+# gather: pivot the cell-columns into one (Roi, int) long pair, keeping
+# `distance` as the id column.
+stacked <- df2 %>% gather(Roi, int, -distance) %>% as.data.table()
+
+# Across-cells summary at each distance.
+df_summary2 <- stacked %>% group_by(distance) %>% rstatix::get_summary_stats(int)
+```
+
+## Step 10a: Optional — write Ch2 (actin) per-cell CSV (if `params$write_csvs`)
+
+`eval = write_csvs` is a knitr chunk option that READS the local R variable
+`write_csvs` at render time and runs the chunk only if it's TRUE. The
+"actin"-focus wrappers pass `write_csvs = TRUE`; the "nmiib"-focus
+wrappers pass FALSE so this chunk is skipped (preserving the original
+behaviour where nmiib wrappers don't emit per-cell CSVs).
+
+```{r template_write_csv_actin, eval=write_csvs}
+# csv_prefix is "WT" or "Arp3KO"; result: "WT_actin.csv" / "Arp3KO_actin.csv"
+write_csv(df2, paste0(csv_prefix, "_actin.csv"))
+```
+
+## Step 11: Build df_summary3 (from Ch3 = NMIIb)
+
+Same pattern as Step 9 but for the NMIIb channel. Note that `df2` is
+**re-assigned** here (was the Ch2 table; becomes the Ch3 table) — Steps 9
+and 10a need to finish their use of df2 before this chunk runs, hence the
+ordering.
+
+```{r template_summary_ch3, message=FALSE, warning=FALSE}
+df2 <- Ch3 %>% as.data.frame()
+df2$distance <- (0:(nrow(df1) - 1)) * 0.0425013
+
+stacked <- df2 %>% gather(Roi, int, -distance) %>% as.data.table()
+
+df_summary3 <- stacked %>% group_by(distance) %>% rstatix::get_summary_stats(int)
+```
+
+## Step 10b: Optional — write Ch3 (NMIIb) per-cell CSV (if `params$write_csvs`)
+
+Mirror of Step 10a for NMIIb. (The step number is "10b" by intent — these
+two writes belong to the same logical step.)
+
+```{r template_write_csv_nmiib, eval=write_csvs}
+write_csv(df2, paste0(csv_prefix, "_NMIIb.csv"))
+```
+
+## Step 12: Final mean-ribbon ggplot
+
+Pick which channel's summary to feed the final plot based on
+`params$final_plot_channel`. The "actin"-focus wrappers set this to
+"Ch3" (so the plotted curve is actually the NMIIb summary — this matches
+the legacy filename convention where "actin variant" PDFs show the
+companion NMIIb profile). The "nmiib"-focus wrappers set it to "Ch2"
+(plotting the actin summary).
+
+```{r template_select_final_summary}
+# identical() does strict equality (won't coerce types).
+final_summary <- if (identical(final_chan, "Ch2")) df_summary2 else df_summary3
+```
+
+The plot itself is a **mean +/- SD ribbon** — a clean way to show the
+average spatial profile across all surviving cells with an uncertainty band.
+
+```{r template_final_plot, message = FALSE, warning = FALSE, fig.width = 10}
+ggplot(final_summary, aes(x = distance, y = mean)) +
+
+  # Ribbon = mean +/- SD band (uncertainty around the population mean).
+  geom_ribbon(aes(ymin = mean - sd, ymax = mean + sd), fill = "lightgrey") +
+  # Heavy black line on top = the population mean trace itself.
+  geom_line(size = 1, alpha = 1) +
+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 6)) +
+  scale_x_continuous(expand = c(0, 0),
+                     breaks = scales::pretty_breaks(n = 8),
+                     limits = c(0, 15)) +     # plot only the 0-15 µm window
+
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw() +
+  theme(plot.title       = element_text(hjust = 0.5),
+        plot.margin      = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position  = "none",
+        axis.text        = element_text(size = 12, face = "bold"))
+```
+
+## Step 13: Save the final plot to disk
+
+Save as PDF (not EPS this time — historical choice in the line-profile
+family). Filename comes from `params$pdf_name`. The wrapper-specific
+legacy filenames `Act_profile.pdf` (WT family) vs `Actin_profile.pdf` (KO
+family) are preserved here for byte-equivalent reproduction.
+
+```{r template_save_pdf}
+ggsave(
+  pdf_name,
+  plot   = last_plot(),
+  device = "pdf")
+```
+
+## Step 14: Persist working environment (fast re-load on next render)
+
+Save the entire R session image so Step 2 can fast-load on the next render.
+This includes everything: `profile_df`, `Ch2`, `Ch3`, `df_summary2`,
+`df_summary3`, plus any intermediate variables. RData is binary and
+reasonably compact.
+
+```{r template_save_env}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file = saved_path)
+```

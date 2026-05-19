@@ -1,0 +1,181 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(ggpubr)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+```
+
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "actin_RF.RData",  sep = "/")
+load(file=saved_path)
+```
+
+```{r}
+data <- Kymo_measure
+
+# Add the "period" column based on "BY" values
+data$period <- cut(data$BY,
+                   breaks = c(0, 61, 122, 183),
+                   labels = c("period_1", "period_2", "period_3"),
+                   right = TRUE)
+
+# Add the "length_a" column as Length * sin(Angle in radians) 
+data$length_a <- data$Length * sin(data$Angle * pi / 180)
+data$time <-  data$length_a *2
+
+# Add the "length_b" column as sqrt(Length^2 - length_a^2) Distance
+data$length_b <- sqrt(data$Length^2 - data$length_a^2)
+data$distance <- data$length_b * 0.1609000 
+
+data$rate <- data$distance/data$time
+
+data$img <- sub("\\.tif.*", "", data$Label)
+```
+
+# define extension and retraction events
+```{r}
+# Calculate the max BX for each period within each img
+growth_data <- data %>%
+  group_by(img, period) %>%
+  summarize(max_BX = max(BX, na.rm = TRUE)) %>%
+  spread(period, max_BX) 
+```
+
+# define extension and retraction events
+```{r}
+# Function to determine growth for each img
+assign_growth <- function(df) {
+  # Find max BX for each period within the img group
+  max_bx <- tapply(df$BX, df$period, max)
+  
+  # Label period_1 and period_2 based on comparison of their max BX values
+  if (!is.na(max_bx["period_2"]) && !is.na(max_bx["period_1"])) {
+    if (max_bx["period_2"] > max_bx["period_1"]) {
+      df$growth[df$period == "period_2"] <- "extension"
+      df$growth[df$period == "period_1"] <- "retraction"
+    } else if (max_bx["period_2"] < max_bx["period_1"]) {
+      df$growth[df$period == "period_2"] <- "retraction"
+      df$growth[df$period == "period_1"] <- "extension"
+    }
+  }
+  
+  # Label period_3 based on comparison with period_2
+  if (!is.na(max_bx["period_3"]) && !is.na(max_bx["period_2"])) {
+    if (max_bx["period_3"] > max_bx["period_2"]) {
+      df$growth[df$period == "period_3"] <- "extension"
+    } else if (max_bx["period_3"] < max_bx["period_2"]) {
+      df$growth[df$period == "period_3"] <- "retraction"
+    }
+  }
+  
+  return(df)
+}
+
+data$growth <- NA
+data <- do.call(rbind, lapply(split(data, data$img), assign_growth))
+```
+
+```{r}
+rate_summary <- data %>%
+  group_by(img, period, growth) %>% 
+   rstatix::get_summary_stats(rate) %>% as.data.table()
+
+rate_summary$ID <- paste(rate_summary$img, rate_summary$period, sep = "_")
+```
+
+
+```{r}
+rate_summary <- rate_summary  %>% filter(!is.na(growth))
+
+outliers <- rate_summary %>% 
+  group_by(growth) %>% 
+ rstatix::identify_outliers(median) 
+
+rate_summary <- rate_summary [! (ID %in% outliers$ID) ]
+```
+
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+library(plotly)
+my_comparisons <- list(c("extension", "retraction"))
+
+#my_comparisons <- S2S3_wave_count_2$group %>% unique() %>% as.character() %>% combn(2, simplify = FALSE) 
+```
+
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+pj <- position_jitter(seed = 1, width = .1, height = 0)
+
+rate_summary %>% #mutate(group = factor(group, levels=c("axon_before",   "axon_after", "minor_before", "minor_after"))) %>% 
+ggplot ( aes(x=growth, y=mean, fill =growth) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, fill="white", outlier.colour = NA)+ 
+# geom_jitter(aes(), shape=16, position=pj)+
+ # geom_line(aes(group = Label))+
+  
+   geom_point(position = pj) +
+#geom_path(aes(group = img),alpha = 0.5, position = pj)+
+    
+    
+#scale_y_continuous(expand = c(0, 0), limits = c(-2, 12), breaks = scales::pretty_breaks(n = 5))+ 
+# geom_signif(comparisons = my_comparisons ,test = "wilcox.test",  color="black")+
+stat_compare_means(comparisons = my_comparisons, test = "wilcox.test", paired=F)+
+    theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+```
+
+```{r}
+ggsave(
+  "S2S3_waveFreq.pdf",
+  plot = last_plot(),
+  device = "pdf")
+
+dev.off()
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "actin_RF.RData",  sep = "/")
+save.image(file=saved_path)
+```

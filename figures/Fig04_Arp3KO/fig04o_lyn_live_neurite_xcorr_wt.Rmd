@@ -1,0 +1,37 @@
+---
+title: "Fig 4o - brightfield neurite-xcorr (WT genotype)"
+output: html_notebook
+params:
+  genotype: "WT"
+  pixel: 0.3243227
+  freq: 0.2
+  cell_range_start: 11
+  cell_range_end: 13
+  cell_prefix: "Cell_"
+---
+
+<!--
+================================================================================
+  WRAPPER for Fig 4o, WT genotype.
+================================================================================
+  Includes the canonical CCF template at:
+      ../../templates/fig04o_lyn_live_neurite_xcorr.Rmd
+
+  Parameters supplied above:
+    - genotype = "WT"        Metadata label
+    - pixel = 0.3243227      pixel-to-um calibration for this imaging session
+    - freq = 0.2 Hz          imaging frame frequency
+    - cell_range = 11..13    cell indices for the WT cohort (3 cells)
+    - cell_prefix = "Cell_"  WT used underscore-prefixed folder names
+
+  Original 2068-line monolithic wrapper refactored 2026-05-12: 99% of the
+  body was structurally identical to the KO wrapper; extracted to the
+  canonical template. Parameters above capture all 5 real per-genotype
+  differences (plus the WT version had a leftover bioimagetools tutorial
+  chunk at the top, which is omitted from the template).
+
+  Essentiality: Essential. Pairs with fig04o_lyn_live_neurite_xcorr_ko.Rmd.
+-->
+
+```{r child = "../../templates/fig04o_lyn_live_neurite_xcorr.Rmd"}
+```

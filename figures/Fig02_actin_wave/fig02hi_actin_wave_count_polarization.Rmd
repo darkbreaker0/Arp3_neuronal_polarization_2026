@@ -1,0 +1,371 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(ggpubr)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+```
+
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "wave_count.RData",  sep = "/")
+load(file=saved_path)
+```
+
+```{r}
+S2S3_wave_count <- S2S3_wave_count %>% as.data.table()
+```
+
+# Wave count of minor neurite
+```{r}
+S2S3_wave_count_minor <- S2S3_wave_count [grep('Minor', S2S3_wave_count$axon_minor) ]
+
+
+# Summed wave freq of minor neurites before polarization
+S2S3_wave_count_minor_before <- aggregate(S2S3_wave_count_minor$freq_before, by=list(Label=S2S3_wave_count_minor$Label, Batch=S2S3_wave_count_minor$Batch), FUN=sum)
+names(S2S3_wave_count_minor_before) <- c("Label","Batch", "freq")
+S2S3_wave_count_minor_before$polarization <- "before"
+
+# Summed wave freq of minor neurites after polarization
+S2S3_wave_count_minor_after <- aggregate(S2S3_wave_count_minor$freq_after, by=list(Label=S2S3_wave_count_minor$Label, Batch=S2S3_wave_count_minor$Batch), FUN=sum)
+names(S2S3_wave_count_minor_after) <- c("Label","Batch", "freq")
+S2S3_wave_count_minor_after$polarization <- "after"
+
+S2S3_wave_count_minor_neuriteNum <- S2S3_wave_count_minor %>% dplyr::count(Label)
+
+
+S2S3_wave_count_minor_before$NeurtieNum <- S2S3_wave_count_minor_neuriteNum$n
+S2S3_wave_count_minor_after$NeurtieNum <- S2S3_wave_count_minor_neuriteNum$n
+
+S2S3_wave_count_minor_2 <- rbind(S2S3_wave_count_minor_before, S2S3_wave_count_minor_after)
+S2S3_wave_count_minor_2$axon_minor <- "minor"
+
+# Average wave freq of individual minor neurite 
+S2S3_wave_count_minor_2$freq_avg <- S2S3_wave_count_minor_2$freq/S2S3_wave_count_minor_2$NeurtieNum
+```
+
+
+# Wave count of axon
+```{r}
+S2S3_wave_count_axon <- S2S3_wave_count[axon_minor == "Axon"]
+S2S3_wave_count_axon <-  S2S3_wave_count_axon[, .(Label, Batch, freq_before, freq_after)]
+S2S3_wave_count_axon$axon_minor <- "axon"
+names(S2S3_wave_count_axon) <- c("Label" ,"Batch", "before", "after",  "axon_minor" )
+
+S2S3_wave_count_axon <- S2S3_wave_count_axon %>% pivot_longer(cols=c("before", "after"), names_to ="polarization", values_to = "freq")
+S2S3_wave_count_axon$NeurtieNum <- 1
+S2S3_wave_count_axon$freq_avg <- S2S3_wave_count_axon$freq/S2S3_wave_count_axon$NeurtieNum
+```
+
+
+```{r}
+S2S3_wave_count_2 <- rbind(S2S3_wave_count_axon, S2S3_wave_count_minor_2) %>% as.data.table()
+
+
+S2S3_wave_count_2$group <- paste(S2S3_wave_count_2$axon_minor, S2S3_wave_count_2$polarization, sep = "_")
+S2S3_wave_count_2$ID <- paste(S2S3_wave_count_2$Label, S2S3_wave_count_2$group, sep = "_")
+
+# convert wave freq from wave/min to wave/hour
+S2S3_wave_count_2$freq <- S2S3_wave_count_2$freq *60
+```
+
+```{r}
+NA_Label <- S2S3_wave_count_2 %>% filter(is.na(freq))
+
+S2S3_wave_count_2 <- S2S3_wave_count_2[! (Label %in% NA_Label$Label)]
+
+outliers <- S2S3_wave_count_2 %>% 
+  group_by(group) %>% 
+ rstatix::identify_outliers(freq) 
+
+S2S3_wave_count_2 <- S2S3_wave_count_2[! (Label %in% outliers$Label)]
+```
+
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+library(plotly)
+my_comparisons <- list(c("axon", "minor"))
+
+my_comparisons <- S2S3_wave_count_2$group %>% unique() %>% as.character() %>% combn(2, simplify = FALSE) 
+```
+
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+pj <- position_jitter(seed = 1, width = .1, height = 0)
+
+S2S3_wave_count_2 %>% mutate(group = factor(group, levels=c("axon_before",   "axon_after", "minor_before", "minor_after"))) %>% 
+ggplot ( aes(x=group, y=freq, fill =axon_minor) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, fill="white", outlier.colour = NA)+ 
+# geom_jitter(aes(), shape=16, position=pj)+
+ # geom_line(aes(group = Label))+
+  
+   geom_point(position = pj) +
+  geom_path(aes(group = Label),alpha = 0.5, position = pj)+
+    
+    
+scale_y_continuous(expand = c(0, 0), limits = c(-2, 12), breaks = scales::pretty_breaks(n = 5))+ 
+# geom_signif(comparisons = my_comparisons ,test = "wilcox.test",  color="black")+
+stat_compare_means(comparisons = my_comparisons, test = "wilcox.test", paired=T)+
+    theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+```
+
+```{r}
+ggsave(
+  "S2S3_waveFreq.pdf",
+  plot = last_plot(),
+  device = "pdf")
+
+dev.off()
+```
+
+```{r}
+
+S2S3_wave_count_2$group_2 <- S2S3_wave_count_2$group 
+S2S3_wave_count_2[polarization =="before"]$group_2 <- "before"
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+my_comparisons <- S2S3_wave_count_2$group_2 %>% unique() %>% as.character() %>% combn(2, simplify = FALSE) 
+
+pj <- position_jitter(seed = 1, width = .1, height = 0)
+
+S2S3_wave_count_2 %>% mutate(group_2 = factor(group_2, levels=c("before", "minor_after", "axon_after"))) %>% 
+ggplot ( aes(x=group_2, y=freq) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, fill="white", outlier.colour = NA)+ 
+# geom_jitter(aes(), shape=16, position=pj)+
+ # geom_line(aes(group = Label))+
+  
+   geom_point(position = pj) +
+  #geom_path(aes(group_2 = Label),alpha = 0.5, position = pj)+
+    
+    
+scale_y_continuous(expand = c(0, 0), limits = c(-2, 12), breaks = scales::pretty_breaks(n = 5))+ 
+# geom_signif(comparisons = my_comparisons ,test = "wilcox.test",  color="black")+
+stat_compare_means(comparisons = my_comparisons, test = "wilcox.test", paired=F)+
+    theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+```
+
+```{r}
+ggsave(
+  "S2S3_waveFreq_revised.pdf",
+  plot = last_plot(),
+  device = "pdf")
+
+dev.off()
+```
+
+
+```{r}
+freq_before_polarization <- S2S3_wave_count %>% group_by(Label, Batch) %>%  
+  rstatix::get_summary_stats(freq_before) %>% 
+  as.data.table()
+
+freq_before_polarization$axon_minor <- "neurite"
+freq_before_polarization$polarization <- "before"
+
+
+freq_before_polarization$mean <- freq_before_polarization$max * 60
+
+freq_before_polarization <- freq_before_polarization[ ,.(Batch, Label, axon_minor, polarization, mean)]
+
+
+names(freq_before_polarization)[[5]] <- "freq"
+
+S2S3_wave_count_2_after <- S2S3_wave_count_2[polarization == "after"][ ,.(Batch, Label, axon_minor, polarization, freq)]
+
+S2S3_wave_count_3 <- rbind(freq_before_polarization, S2S3_wave_count_2_after)
+
+#S2S3_wave_count_3 <- rbind(S2S3_wave_count_before, S2S3_wave_count_2_after)
+```
+
+```{r}
+
+outliers <- S2S3_wave_count_3 %>% 
+  group_by(axon_minor) %>% 
+ rstatix::identify_outliers(freq) 
+
+S2S3_wave_count_3 <- S2S3_wave_count_3[! (Label %in% "Long2_LifeactmScar01_44_R3D.dv")]
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+my_comparisons <- S2S3_wave_count_3$axon_minor %>% unique() %>% as.character() %>% combn(2, simplify = FALSE) 
+
+pj <- position_jitter(seed = 1, width = .1, height = 0)
+
+S2S3_wave_count_3 %>% mutate(axon_minor = factor(axon_minor, levels=c("neurite", "axon", "minor"))) %>% 
+ggplot ( aes(x=axon_minor, y=freq) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, fill="white", outlier.colour = NA)+ 
+# geom_jitter(aes(), shape=16, position=pj)+
+ # geom_line(aes(group = Label))+
+  
+   geom_point(position = pj) +
+ # geom_path(aes(group = Label),alpha = 0.5, position = pj)+
+    
+    
+scale_y_continuous(expand = c(0, 0), limits = c(-2, 10), breaks = scales::pretty_breaks(n = 5))+ 
+# geom_signif(comparisons = my_comparisons ,test = "wilcox.test",  color="black")+
+stat_compare_means(comparisons = my_comparisons, test = "wilcox.test", paired=F)+
+    theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+```
+
+```{r}
+ggsave(
+  "S2S3_waveFreq_revised_2.pdf",
+  width = 6,
+  height = 4,
+  plot = last_plot(),
+  device = "pdf")
+```
+
+# Totol wave count per cell
+```{r}
+S2S3_Total_wave<- S2S3_wave_count %>% 
+  group_by(Label, Batch, Polarization_point, Post_polarization) %>%  
+  rstatix::get_summary_stats(before, after) %>% 
+  as.data.table()
+
+S2S3_Total_wave$wave_count <- (S2S3_Total_wave$n * S2S3_Total_wave$mean) %>% round()
+
+S2S3_Total_wave_2 <- S2S3_Total_wave %>% pivot_wider(names_from = variable, values_from = wave_count, id_cols=c("Batch", "Label", "Polarization_point", "Post_polarization"))
+
+S2S3_Total_wave_2$before_wave_hour <- (S2S3_Total_wave_2$before/S2S3_Total_wave_2$Polarization_point)*60
+S2S3_Total_wave_2$after_wave_hour <- (S2S3_Total_wave_2$after/S2S3_Total_wave_2$Post_polarization)*60
+
+S2S3_Total_wave_3<- S2S3_Total_wave_2 %>% pivot_longer(cols = c("before_wave_hour", "after_wave_hour"), names_to = "polarization", values_to = "wave_hour") %>% as.data.table()
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+my_comparisons <- list(c("before_wave_hour",   "after_wave_hour"))
+pj <- position_jitter(seed = 1, width = .1, height = 0)
+
+S2S3_Total_wave_3 %>% mutate(polarization = factor(polarization, levels=c("before_wave_hour",   "after_wave_hour"))) %>% 
+ggplot ( aes(x=polarization, y=wave_hour, fill =polarization) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, fill="white", outlier.colour = NA)+ 
+# geom_jitter(aes(), shape=16, position=pj)+
+ # geom_line(aes(group = Label))+
+  
+   geom_point(position = pj) +
+#  geom_path(aes(group = Label),alpha = 0.5, position = pj)+
+    
+    
+scale_y_continuous(expand = c(0, 0), limits = c(-2, 20), breaks = scales::pretty_breaks(n = 8))+ 
+# geom_signif(comparisons = my_comparisons ,test = "wilcox.test",  color="black")+
+stat_compare_means(comparisons = my_comparisons, test = "wilcox.test", paired=F)+
+    theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+```
+
+# ignoring polariztion point
+```{r}
+S2S3_Total_wave_3$wave_hour_2 <- 60* (S2S3_Total_wave_3$before + S2S3_Total_wave_3$after)/(S2S3_Total_wave_3$Polarization_point + S2S3_Total_wave_3$Post_polarization)
+```
+
+```{r}
+S2S3_Total_wave_3[polarization=="before_wave_hour"] %>% 
+ggplot ( aes(x=polarization, y=wave_hour_2, fill =polarization) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, fill="white", outlier.colour = NA)+ 
+# geom_jitter(aes(), shape=16, position=pj)+
+ # geom_line(aes(group = Label))+
+  
+   geom_point(position = pj) +
+#  geom_path(aes(group = Label),alpha = 0.5, position = pj)+
+    
+    
+scale_y_continuous(expand = c(0, 0), limits = c(-2, 12), breaks = scales::pretty_breaks(n = 8))+ 
+# geom_signif(comparisons = my_comparisons ,test = "wilcox.test",  color="black")+
+stat_compare_means(comparisons = my_comparisons, test = "wilcox.test", paired=F)+
+    theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+```
+
+```{r}
+saveRDS(S2S3_Total_wave_3, "S2S3_Total_wave_3.rds")
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "wave_count.RData",  sep = "/")
+save.image(file=saved_path)
+```

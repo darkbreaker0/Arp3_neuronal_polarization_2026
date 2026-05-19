@@ -1,0 +1,628 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+<!--
+# Per-event somatic actin intensity at wave emergence vs before
+# (3-timepoint paired comparison). Feeds Fig 2d.
+
+## What this file does
+
+Reads ``wave_soma_int*.csv`` files and computes per-wave-event somatic
+actin intensity at 3 timepoints (line 85: ``rep(1: (nrow(df)/3), each=3)``
+indexes per-wave triplets). Paired Wilcoxon at lines 191, 225 compares
+the timepoints within wave events. Three ggsave outputs (lines 238, 470,
+630).
+
+## Manuscript panel
+
+**Fig 2d**: "Quantification of somatic actin intensity (Int) at the time
+points of wave emergence and before. N = 514 wave events of 23 neurons from
+4 experiments. Two-tailed paired t-test."
+
+Source Data: `Fig 2d`.
+
+## Outputs
+
+- 3 ``ggsave`` PDFs at lines 238, 470, 630 (filenames in body).
+
+## Related files
+
+- ``figures/Fig02_actin_wave/fig02_axon_soma_actin_intensity.Rmd`` —
+  body is nearly byte-identical to this file (different output
+  filenames; slightly different chunk numbering). One of the two is
+  likely a duplicate or split-off.
+
+## Original G:\ source
+
+G:/Figure 2_actin wave/Fig. 2c/Actin_wave_Fig. 2di_ExtFig.2a/R_script/wave_soma_int.Rmd
+(Note: original folder name ``Actin_wave_Fig. 2di_ExtFig.2a`` already
+references Fig 2d/2i + ED Fig 2a, confirming Fig 2d as the target.)
+-->
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(ggpubr)
+library(superheat)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+load(file=saved_path)
+```
+
+# analysis of the level of soma actin int change before and after wave formation
+# retrieve data of wave_soma_int
+```{r}
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = F)
+wave_soma_int_list<- list()
+
+ wave_soma_int_csv_list <- list.files(Path_1, pattern = "_wave_soma_int(.*)csv$", 
+                     recursive = T,  #list of subfolders and files within the subfolders
+                     include.dirs = T, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+ 
+ for (n in 1:length(wave_soma_int_csv_list))  
+{
+ df <- wave_soma_int_csv_list[n] %>% read.csv(header = TRUE) %>% as.data.table()
+ df$Label <- df$Label %>% gsub("\\.tif:0.*",".tif",.)
+ df$Batch <-  wave_soma_int_csv_list[n] %>% dirname() %>% basename()
+ 
+ df$Time_point <- rep(c("wave", "pre", "post"), nrow(df)/3) 
+ df$wave_event <- rep(1: (nrow(df)/3), each=3)
+ 
+ wave_soma_int_list[[n]] <- df
+ }
+```
+
+```{r}
+wave_soma_int_df <- wave_soma_int_list %>% reduce(bind_rows) %>% as.data.table()
+wave_soma_int_df[, c("Ch", "Frame", "Area", "Slice", "X") := NULL]
+wave_soma_int_df$wave_event <- rep(1: (nrow(wave_soma_int_df)/3), each=3)
+
+# calculate mean and sd in each wave formation event
+event_int_summary <- wave_soma_int_df  %>% 
+ group_by(wave_event, Label) %>% 
+  rstatix::get_summary_stats(IntDen) %>% as.data.table()
+
+wave_soma_int_df  <- wave_soma_int_df %>%
+  left_join(event_int_summary[, c("wave_event", "sd", "mean")], by = "wave_event") %>% as.data.table()
+
+# Normalize int with the average int of pre- wave- and post. 
+wave_soma_int_df$IntDenNorm <- wave_soma_int_df$IntDen/wave_soma_int_df$mean
+```
+
+```{r}
+wave_soma_int_df2 <- wave_soma_int_df %>% pivot_wider( names_from = Time_point, values_from = c(IntDen, , RawIntDen, IntDenNorm)) %>% as.data.table()
+
+wave_soma_int_df2$IntDenNormPre_pre <- wave_soma_int_df2$IntDen_pre/wave_soma_int_df2$IntDen_pre
+wave_soma_int_df2$IntDenNormPre_wave <- wave_soma_int_df2$IntDen_wave/wave_soma_int_df2$IntDen_pre
+wave_soma_int_df2$IntDenNormPre_post <- wave_soma_int_df2$IntDen_post/wave_soma_int_df2$IntDen_pre
+
+wave_soma_int_df2[IntDenNorm_wave < IntDenNorm_pre]$Batch %>% table()
+wave_soma_int_df2[IntDenNorm_wave > IntDenNorm_pre]$Batch %>% table()
+```
+
+# Separate into two datasets based on Int at and pre- wave formation 
+```{r}
+wave_soma_int_df_low <- wave_soma_int_df2[IntDenNormPre_wave < IntDenNormPre_pre] %>% 
+  pivot_longer(cols= starts_with(c("IntDen", "RawIntDen", "IntDenNorm", "IntDenNormPre")), 
+               #names_prefix = c("IntDen", "RawIntDen", "IntDen_norm"), 
+               names_to = c(".value", "Time_point"), names_sep = "_") %>% as.data.table()
+
+wave_soma_int_df_high <- wave_soma_int_df2[IntDenNormPre_wave > IntDenNormPre_pre] %>% 
+  pivot_longer(cols= starts_with(c("IntDen", "RawIntDen", "IntDenNorm", "IntDenNormPre")), 
+               #names_prefix = c("IntDen", "RawIntDen", "IntDen_norm"), 
+               names_to = c(".value", "Time_point"), names_sep = "_") %>% as.data.table()
+
+wave_soma_int_df2 <- wave_soma_int_df2 %>% 
+  pivot_longer(cols= starts_with(c("IntDen", "RawIntDen", "IntDenNorm", "IntDenNormPre")), 
+               #names_prefix = c("IntDen", "RawIntDen", "IntDen_norm"), 
+               names_to = c(".value", "Time_point"), names_sep = "_") %>% as.data.table()
+```
+
+# exclude outliers 
+```{r}
+outliers <- wave_soma_int_df_low %>% 
+  group_by(Time_point) %>% 
+ rstatix::identify_outliers(IntDenNorm) 
+
+wave_soma_int_df_low <- wave_soma_int_df_low[! (wave_event %in% outliers$wave_event)]
+
+outliers <- wave_soma_int_df_high %>% 
+  group_by(Time_point) %>% 
+ rstatix::identify_outliers(IntDenNorm) 
+
+wave_soma_int_df_high <- wave_soma_int_df_high[! (wave_event %in% outliers$wave_event)]
+
+outliers <- wave_soma_int_df2 %>% 
+  group_by(Time_point) %>% 
+ rstatix::identify_outliers(IntDenNorm) 
+
+wave_soma_int_df2 <- wave_soma_int_df2[! (wave_event %in% outliers$wave_event)]
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+library(plotly)
+my_comparisons <- list(c("wave", "pre"))
+# my_comparisons <- wave_soma_int_df_low$Time_point %>% unique() %>% as.character() %>% combn(2, simplify = FALSE) 
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+pj <- position_jitter(seed = 1, width = .1, height = 0)
+
+wave_soma_int_df2 [ Time_point %in% c("wave", "pre")] %>% mutate(Time_point = factor(Time_point, levels=c("pre", "wave"))) %>% 
+ggplot ( aes(x=Time_point, y=IntDenNorm, fill =Time_point) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.4, fill="white", outlier.colour = NA)+ 
+# geom_jitter(aes(), shape=16, position=pj)+
+ # geom_line(aes(group = Label))+
+  
+   geom_point(position = pj) +
+  geom_path(aes(group = wave_event),alpha = 0.1, position = pj)+
+    
+scale_y_continuous(expand = c(0, 0),  limit= c(0.9, 1.2), breaks = scales::pretty_breaks(n = 5))+ 
+# geom_signif(comparisons = my_comparisons ,test = "wilcox.test",  color="black")+
+stat_compare_means(comparisons = my_comparisons, test = "wilcox.test", paired=T)+
+    theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+```
+```{r}
+wave_soma_int_df2 [ Time_point %in% c("wave", "pre")] %>% mutate(Time_point = factor(Time_point, levels=c("pre", "wave"))) %>%  write_csv("wave_somaInt.csv")
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+wave_soma_int_df2_cell <- wave_soma_int_df2  %>% group_by(Time_point, Label) %>% rstatix::get_summary_stats(IntDenNorm) %>% as.data.table()
+
+pj <- position_jitter(seed = 1, width = .1, height = 0)
+
+wave_soma_int_df2_cell [ Time_point %in% c("wave", "pre")] %>% mutate(Time_point = factor(Time_point, levels=c("pre", "wave"))) %>% 
+ggplot ( aes(x=Time_point, y=mean, fill =Time_point) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.4, fill="white", outlier.colour = NA)+ 
+# geom_jitter(aes(), shape=16, position=pj)+
+ # geom_line(aes(group = Label))+
+  
+   geom_point(position = pj) +
+  geom_path(aes(group = Label),alpha = 0.1, position = pj)+
+    
+scale_y_continuous(expand = c(0, 0),  limit= c(0.9, 1.1), breaks = scales::pretty_breaks(n = 5))+ 
+# geom_signif(comparisons = my_comparisons ,test = "wilcox.test",  color="black")+
+stat_compare_means(comparisons = my_comparisons, test = "wilcox.test", paired=T)+
+    theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+```
+
+```{r}
+ggsave(
+  "wave_somaInt_cell.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r}
+
+wave_soma_int_df_low[ Time_point %in% c("wave")] %>% 
+  group_by(Time_point) %>% 
+  rstatix::get_summary_stats(IntDenNormPre) %>% as.data.table()
+
+wave_soma_int_df_low[ Time_point %in% c("wave")]$IntDenNormPre %>% mean()
+
+# install.packages("effsize")
+library(effsize)
+cohen.d(wave_soma_int_df_low[ Time_point %in% c("wave", "pre")]$IntDenNorm, wave_soma_int_df_low[ Time_point %in% c("wave", "pre")]$Time_point)
+
+```
+
+# analysis of Corr between actin wave events and soma actin int. 
+# Soma actin and actin wave frame
+```{r}
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = F)
+somaActin_list<- list()
+wave_list<- list()
+freq <- 0.5 # set frequency (1/interval)
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list))  
+{
+  soma_csv_list <- list.files(subfolder_list[n],pattern = "^soma_actin(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+   wave_csv_list <- list.files(subfolder_list[n],pattern = "wave(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+   
+   folder_wave_list<- list()
+   
+   # Reading actin wave data
+   for (k in 1:length(wave_csv_list))  
+        {
+     
+     df <- wave_csv_list[k] %>% read.csv(header = TRUE) 
+     folder_wave_list[[k]] <-  df[, grep("Slice|Frame",  colnames(df)), drop = FALSE] 
+     colnames(folder_wave_list[[k]])[1]<- "Frame"
+     names(folder_wave_list)[k]<- wave_csv_list[k] %>% basename() %>% gsub("_wave.csv", "", .)
+   
+   }
+   
+   # Reading soma actin data
+  somaActin_list[[n]]  <- soma_csv_list[1] %>% read.csv(header = TRUE)
+  wave_list[[n]]<- folder_wave_list
+
+}
+
+names(somaActin_list) <- subfolder_list %>% basename()
+names(wave_list) <- subfolder_list %>% basename()
+```
+# subset soma actin data matching actin wave data
+
+# Create dataframe and assign logic value (0 for no wave or 1 for wave emergin at the soma) 
+```{r}
+
+wave_frame_list <- list()
+
+for (n in 1:length(wave_list)){
+  
+  list_1 <- wave_list[[n]]
+  list_2 <- list()
+  
+  for (k in 1:length(list_1)){
+    
+    df <- seq(1:481) %>% as.data.frame()
+    names(df)<- "Time"
+    df$Wave <- 0
+    df[df$Time %in% list_1[[k]]$Frame ,]$Wave <- 1
+    list_2[[k]] <- df$Wave %>% ts(frequency = freq, start = c(0, 1))
+
+}
+ names(list_2)<- names(list_1)
+ wave_frame_list[[n]] <- list_2
+  
+}
+
+names(wave_frame_list) <- names(wave_list)
+
+```
+
+```{r}
+
+wave_frame_list_2<- wave_frame_list %>%  unlist(recursive=FALSE)
+somaActin_list_2<- somaActin_list %>%  unlist(recursive=FALSE)
+
+somaActin_list_2<- somaActin_list_2 [names(wave_frame_list_2)]
+
+```
+
+# Create stationary (differential) curve of all measurements
+```{r}
+freq <- 0.5
+
+selected_list <- somaActin_list_2
+somaActin_sta_list <- list()
+
+  for (n in 1:length(selected_list))  {
+ 
+  somaActin_sta_list[[n]]<- selected_list[[n]] %>% 
+    forecast::ma(2) %>%                                    # smoothing #1
+    MTS::diffM(d=1) %>% 
+    forecast::ma(2) %>% 
+    ts(frequency = freq, start = c(0, 1))
+  
+  colnames(somaActin_sta_list[[n]])<-colnames(selected_list[[n]])
+  
+  }
+
+names(somaActin_sta_list)<- names(selected_list)
+
+```
+
+# Create data frame for visualization of selected data
+```{r  message = FALSE, warning=FALSE, fig.width=8}
+df_1 <- somaActin_sta_list[[14]] %>% as.data.frame()
+df_1$x<- df_1$x %>%  as.numeric()
+df_1[nrow(df_1)+1, ]<- "NA"
+#df_1[nrow(df_1)+1, ]<- "NA"
+df_1$x<- df_1$x %>%  as.numeric()
+
+df_2 <- wave_frame_list_2[[14]] %>% as.data.frame()
+df_1$wave_frame<- df_2$x
+df_1$Time<- (0:480)*2
+
+df_mark<- df_1 %>% subset(df_1$wave_frame == 1)
+```
+
+# check the occurance of actin waves of selected data
+# check the curve of selected stationary data
+```{r  message = FALSE, warning=FALSE, fig.width=8}
+ggplot(df_1, aes(x=Time, y=x)) +
+
+  #geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="lightgrey", alpha=1)+
+  geom_line(size=1) +
+  
+  #geom_vline(xintercept=0, linetype="dashed", color = "black")+
+  geom_hline(yintercept=0, linetype="dashed", color = "black")+
+  
+  #stat_peaks(colour = "red", ignore_threshold = 0.9) +
+  #stat_peaks(geom = "text", colour = "red", vjust = -0.5, ignore_threshold = 0.9) +
+  
+  #stat_valleys(colour = "blue", ignore_threshold = 0.9, span = 11)+
+  #stat_valleys(geom = "text", colour = "blue", angle = 45, vjust = 1.5, hjust = 1, ignore_threshold = 0.9, span = 11)+
+  
+  #scale_y_continuous(expand = c(0, 0), limits = c(-0.7, 0.7), breaks = scales::pretty_breaks(n = 7))+
+  #scale_x_continuous(expand = c(0, 0), limits = c(-50, 50), breaks = scales::pretty_breaks(n = 8)) + 
+  geom_point(data=df_mark, 
+             aes(x=Time,y=x), 
+             color='red',
+             size=2)+
+
+  theme_ipsum(grid = F, ticks = T)+ 
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+```{r}
+binned_list<-list()
+for (n in 1: length(df_mark_list)){
+  p <- df_mark_list[[n]] %>% ggplot(aes(x=Time)) + 
+    geom_histogram(aes(y=..density..), colour="black", fill="white", binwidth = 30)+
+    geom_density(alpha=.2, fill="#FF6666") 
+ 
+  binned_df <- p %>% layer_data(1)
+  binned_df$pct <- binned_df$ndensity/sum(binned_df$ndensity) 
+  binned_df$img_name <- names(df_mark_list)[n]
+  binned_list[[n]] <- binned_df
+  
+}
+
+names(binned_list) <- names(somaActin_sta_list)
+
+binned_df <- binned_list[[1]]
+for (n in 2: length(binned_list)){
+ binned_df <- rbind(binned_df, binned_list[[n]])
+}
+
+df_summary <- binned_df %>% group_by(x) %>% rstatix::get_summary_stats(count)
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=8}
+ggplot(df_summary, aes(x=x, y=mean)) +
+
+  geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="lightgrey", alpha=1)+
+  geom_line(size=1) +
+  
+  #geom_vline(xintercept=0, linetype="dashed", color = "black")+
+  #geom_hline(yintercept=0, linetype="dashed", color = "black")+
+  
+  scale_y_continuous(expand = c(0, 0), limits = c(-2, 6), breaks = scales::pretty_breaks(n = 8)) +
+  scale_x_continuous(expand = c(0, 0), limits = c(0, 960), breaks =  seq(0, 960, by = 60)) + 
+  
+  theme_ipsum(grid = F, ticks = T)+ 
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+```{r}
+ggsave(
+  "wave_count.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+#calculate the percentage of waves occuring at increasing or decreasing soma actin
+```{r}
+
+somaActin_sta_wave <- list()
+df_mark_list <- list()
+for (n in 1: length(somaActin_sta_list)){
+  
+    df_1 <- somaActin_sta_list[[n]] %>% as.data.frame()
+    df_1$x<- df_1$x %>%  as.numeric()
+    df_1[nrow(df_1)+1, ]<- "NA"
+    df_1$x<- df_1$x %>%  as.numeric()
+    
+    df_2 <- wave_frame_list_2[[n]] %>% as.data.frame()
+    df_1$wave_frame<- df_2$x
+    df_1$Time<- (0:480)*2
+    
+    df_mark<- df_1 %>% subset(df_1$wave_frame == 1) %>% as.data.table()
+    
+    df_mark$change <- "Negative"
+    df_mark[df_mark$x >0 ,]$change <- "Positive"
+    df_mark_list [[n]] <- df_mark
+    somaActin_sta_wave [[n]]<- df_mark$change %>% table() %>% as.data.frame() %>% t()
+    
+}
+
+names(df_mark_list)<- names(somaActin_sta_list)
+
+# combine the counts of Neg and Pos from all cells as single data frame
+df_1 <- somaActin_sta_wave[[1]] %>% as.data.frame()
+df_1 <- df_1[2, ]
+
+for (n in 2: length(somaActin_sta_wave)){
+  
+    df_2 <- somaActin_sta_wave[[n]] %>% as.data.frame()
+    
+    df_1 <- rbind (df_1, df_2[2, ])
+}
+
+colnames(df_1)<- c("Negative", "Positive")
+
+df_1$img_name<- names(somaActin_sta_list)
+df_1$Negative<- df_1$Negative %>% as.numeric()
+df_1$Positive<- df_1$Positive %>% as.numeric()
+
+df_1$Neg_pct<- df_1$Negative/(df_1$Negative+df_1$Positive)
+df_1$Pos_pct<- df_1$Positive/(df_1$Negative+df_1$Positive)
+
+df_1_long <- df_1 %>% pivot_longer(cols=c("Neg_pct", "Pos_pct"), values_to = "pct", names_to="change")
+
+df_1_long %>% group_by(change) %>% rstatix::get_summary_stats(pct)
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=8}
+library("ggpubr")
+my_comparisons <- list( c("Neg_pct", "Pos_pct") )
+
+ggplot(df_1_long, aes(x=change, y=pct, fill=change)) + 
+  geom_violin(trim=FALSE, 
+              kernel ="gaussian", 
+              adjust=1.3)+
+  geom_boxplot(width=0.5, fill="white")  +
+  geom_point(aes(fill=change,group=img_name), position = position_dodge(0.2))+
+  geom_line(aes(group=img_name), position = position_dodge(0.2)) +
+  stat_compare_means(comparisons = my_comparisons, paired=T, method="wilcox.test")+
+  scale_y_continuous( expand = c(0, 0), limits = c(-0.2, 1.2), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+# plotly::ggplotly(p)
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=8}
+df_summary <- df_1_long %>%
+  group_by(change) %>%
+  summarise(
+    mean_value = mean(pct),
+    sd_value = sd(pct)
+  )
+
+# 2. Plotting
+ggplot(df_summary, aes(x = change, y = mean_value)) +
+  # Create the bars
+  geom_bar(stat = "identity", fill = "steelblue", alpha = 0.7) +
+  
+  # Add the error bars (Standard Deviation)
+  geom_errorbar(aes(ymin = mean_value - sd_value, 
+                    ymax = mean_value + sd_value), 
+                width = 0.2) +
+  geom_jitter(data = df_1_long, aes(x = change, y = pct), 
+              width = 0.2,   # Controls horizontal spread
+              height = 0,    # usually 0 for vertical data
+              alpha = 0.6,   # Transparency
+              color = "darkblue") +
+  
+  scale_y_continuous( expand = c(0, 0), limits = c(0, 1), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# 1. Prepare Summary Data
+# We calculate Mean and SD, then calculate the "Cumulative Top" of each bar
+df_summary <- df_1_long %>%
+  group_by(change) %>%
+  summarise(
+    mean_value = mean(pct),
+    sd_value = sd(pct),
+    .groups = 'drop'
+  ) %>%
+  # IMPORTANT: Arrange by Group A and then Group B (reverse) to match ggplot stacking
+  arrange(desc(change)) %>%
+ 
+  mutate(
+    # This calculates where the top of each segment will be
+    cum_y = cumsum(mean_value),
+    
+  )
+
+# 2. Plotting
+ggplot(df_summary, aes(x = "Total", y = mean_value, fill = change)) +
+  # Draw the Stacked Bars
+  geom_col() +
+  
+  # Draw the Error Bars
+  # Notice: we use 'cum_y' (the calculated top) as the anchor, not 'mean_value'
+  geom_errorbar(aes(ymin = cum_y - sd_value, 
+                    ymax = cum_y + sd_value), 
+                width = 0.2) +
+  
+  labs(title = "Stacked Bar Chart with Standard Deviation",
+       x = "Group A", y = "Value (C)") +
+  theme_minimal()
+```
+
+```{r}
+ggsave(
+  "awave_neg.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+```

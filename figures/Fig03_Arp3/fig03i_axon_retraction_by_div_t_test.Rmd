@@ -1,0 +1,148 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+<!--
+# Fig 3i - Percentage of DIV-1 vs DIV-3 polarized neurons whose axons
+# were retracted by CK-666 (binary t-test).
+
+## What this file does
+
+1. Reads ``CK666_WO_analysis.xlsx`` sheet ``Axon_retraction_count``
+   (range A1:F17) — Excel-format per-experiment summary table with
+   columns including ``Axon_retracted...5`` (the % retracted).
+2. Groups experiments by DIV: DIV-1 + DIV-2 vs DIV-3 + DIV-4.
+3. Plots boxplot + jittered points, comparing the two DIV groups with
+   ``stat_compare_means(method = "t.test", paired = F)``.
+4. Saves ``retracted_axon_percentage_DIV1_DIV3.pdf`` (line 124).
+
+## Manuscript panel
+
+- **Fig 3i** (line 112 of ``Arp3_manuscript 20260501.docx``):
+  "Percentage of DIV-1 and DIV-3 polarized neurons of which axons were
+  retracted by CK-666. N = 3 experiments of DIV-1 and 6 experiments
+  of DIV-3 neurons treated with CK-666. *p < 0.05 by Two-tailed t-test."
+
+Body matches the legend exactly:
+- N=3 DIV-1 + N=6 DIV-3 experiments → matches the per-experiment xlsx rows.
+- Two-tailed t-test → matches ``method = "t.test"`` in body.
+- Output ``retracted_axon_percentage_DIV1_DIV3.pdf`` directly visualizes
+  the published comparison.
+
+Source Data sheet: ``Fig 3i``.
+
+## Leftover code chunks (no panel use)
+
+The file body contains a leftover chunk (line 137) referencing
+``df_summary`` with an antero-vs-retro direction comparison. That data
+frame is NOT created earlier in this file — the chunk is **dead code**
+inherited from the original ``wave_count.Rmd`` template (the body was
+created by copying the wave_count template and substituting the axon
+retraction analysis). Knitting will skip the chunk (df_summary not
+defined) or it would need separate data.
+
+ED Fig 4 panels (line 334+ of docx) describe different analyses
+(growth cone size, neurite extension/retraction duration/velocity
+under CK-666, washout) that are NOT in this file's body.
+
+## Original G:\ source
+
+G:/Figure 3_Arp3/Fig. 3i/R_scripts/wave_count.Rmd
+(Filename ``wave_count.Rmd`` is the misnomer — the body counts axon
+retraction events under CK-666 treatment by DIV, NOT actin waves.)
+-->
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(ggpubr)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+library(ggpubr)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(Path_1)
+saved_path <- paste(Path_1, "retracted_axon.RData",  sep = "/")
+load(file=saved_path)
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+```
+
+# save environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "retracted_axon.RData",  sep = "/")
+save.image(file=saved_path)
+```
+
+# filter for analyzed cells and relevant columns 
+```{r}
+library(readxl)
+CK666_WO <- read_excel("CK666_WO_analysis.xlsx", sheet = "Axon_retraction_count", range = "A1:F17") %>% as.data.table()
+
+CK666_WO$group <- "DIV1_DIV2"
+CK666_WO[...2 == "DIV3"|...2 == "DIV4"]$group <- "DIV3_DIV4"
+
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+
+my_comparisons <- list(c("DIV1_DIV2", "DIV3_DIV4"))
+                       
+library(colorspace)
+CK666_WO[...2 == "DIV1" | ...2 == "DIV3"]  %>% 
+ggplot(aes(x=group, y=Axon_retracted...5, fill = group)) +
+  #geom_point()
+  theme_classic()+
+ # geom_violin(trim=FALSE, kernel ="gaussian", adjust=1)+
+  geom_boxplot(width=0.4, fill="white",color="black",alpha=1, outliers = F) +
+  geom_jitter(alpha=1, width=0.1, size=5) + 
+ # scale_color_continuous_sequential(palette = "Heat", begin = 0.3, end = 1)+ 
+# scale_y_continuous(expand = c(0, 0),  limits = c(0, 1.5), breaks = scales::pretty_breaks(n = 10))+ 
+  stat_compare_means(comparisons = my_comparisons, test = "t.test", paired=F)+
+  theme_ipsum(grid = F, ticks = T) +
+ theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+#plotly::ggplotly(p)
+```
+
+```{r}
+ggsave(
+  "retracted_axon_percentage_DIV1_DIV3.pdf",
+   width=7, height=14, 
+  plot = last_plot(),
+  device = "pdf")
+#dev.off()
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "wave.RData",  sep = "/")
+save.image(file=saved_path)
+```

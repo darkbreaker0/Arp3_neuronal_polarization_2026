@@ -1,0 +1,113 @@
+---
+title: "Fig 3n + ED Fig 5b - PA-Rac1 / Arp3 KO precursor (Pre/Act/Post)"
+output: html_notebook
+params:
+  variant: "KO"
+  pdf_name: "KO_length.eps"
+  length_y_limit: !r c(-30, 30)
+---
+
+<!--
+================================================================================
+  STAGE-1 PRECURSOR wrapper for Fig 3n + ED Fig 5b, Arp3 KO condition.
+================================================================================
+  Variant-specific data loading happens HERE; the deterministic
+  pivot / save / plot pipeline is delegated to:
+      ../../templates/fig03n_parac1_precursor.Rmd
+
+  Body N = 45 ROIs (length), 48 ROIs (actin intensity).
+  Published N = 40 events (2 outliers removed in the consolidator).
+
+  Pipeline -> downstream consolidator
+      figures/Fig03_Arp3/fig03n_parac1_gc_soma_length.Rmd
+  which reads:
+      KO_actin_int.rds  (produced here)
+      KO_length.rds     (produced here)
+  alongside the C450M / T17N siblings' .rds and the WT data, then runs
+  Kruskal-Wallis + Dunn across all PA-Rac1 conditions.
+
+  Essentiality: Essential. Pairs with the 2 sibling precursors.
+
+  Original 247-line monolithic wrapper refactored 2026-05-12: variant-
+  specific CSV-loading + actin-table concatenation kept inline; the
+  generic pivot/save/plot pipeline moved to the canonical template.
+  Original G:\ source: G:/Figure 3_Arp3/Fig. 3j-n_PARac1/Andor/Arp3KO/Neurite activity corr.Rmd
+-->
+
+## Step 1: libraries + load saved environment
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(ggpubr)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(viridis)
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData", sep = "/")
+load(file = saved_path)
+```
+
+## Step 2: Build `length_input` from per-cell *_length*.csv files
+
+```{r message=FALSE}
+folder_path <- Path_1
+file_paths  <- list.files(path = folder_path, pattern = "_length(.*)csv$",
+                          recursive = TRUE, full.names = TRUE)
+folder_name <- basename(dirname(file_paths))
+
+data_list <- file_paths %>% map(read.csv)
+for (n in 1:length(data_list)) {
+  data_list[[n]]$Exp <- folder_name[n]
+}
+
+length_input <- data_list %>% reduce(bind_rows)
+```
+
+## Step 3: Build `actin_input` by concatenating actin_quant + actin_quant_2 (N=48)
+
+```{r}
+actin_quant$Series <- c("Pre", "Act", "Post")
+actin_quant$roi    <- rep(1:27, each = 3)
+
+actin_quant_2 <- actin_quant_2[, 1:5]
+actin_quant_2$Series <- c("Pre", "Act", "Post")
+actin_quant_2$roi    <- rep(1:21, each = 3)
+
+actin_quant <- rbind(actin_quant, actin_quant_2)
+actin_quant$roi   <- rep(1:48, each = 3)
+actin_quant$Image <- actin_quant$Label %>% str_remove("\\.tif:.*")
+actin_quant$Site  <- "NA"
+actin_quant$exp   <- "KO_PA_Rac1_WT"
+
+actin_input <- actin_quant
+```
+
+## Step 4: include canonical pivot/save/plot template
+
+```{r child = "../../templates/fig03n_parac1_precursor.Rmd"}
+```
+
+## Step 5: persist working environment
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData", sep = "/")
+save.image(file = saved_path)
+```

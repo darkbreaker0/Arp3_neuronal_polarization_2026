@@ -1,0 +1,46 @@
+# Force LF line endings for text files (cross-platform consistency)
+* text=auto eol=lf
+
+# Source code: explicit text + LF
+*.R       text eol=lf
+*.Rmd     text eol=lf
+*.Rnw     text eol=lf
+*.py      text eol=lf
+*.ijm     text eol=lf
+*.m       text eol=lf
+*.java    text eol=lf
+*.ipynb   text eol=lf
+
+# Documentation: text + LF
+*.md      text eol=lf
+*.txt     text eol=lf
+*.csv     text eol=lf
+*.tsv     text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.json    text eol=lf
+*.cff     text eol=lf
+LICENSE   text eol=lf
+.gitignore text eol=lf
+
+# Binary / opaque blobs
+*.RData     binary
+*.rds       binary
+*.tif       binary
+*.tiff      binary
+*.dv        binary
+*.nd2       binary
+*.lsm       binary
+*.h5        binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.pdf       binary
+*.eps       binary
+*.svg       binary
+*.docx      binary
+*.xlsx      binary
+*.pzfx      binary
+*.prism     binary
+*.zip       binary

@@ -1,0 +1,195 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r message=FALSE}
+
+library(pracma)
+# library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(circular)
+library("gridExtra") 
+library("ggExtra") 
+library("ggpubr")
+```
+
+```{r Load RData, message=FALSE, warning=FALSE}
+dir  <- dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(dir)
+saved_path <- paste(dir, "Morpho_quant.RData",  sep = "/")
+load(file=saved_path)
+
+#save.image(file=saved_path)
+```
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(stringr)
+library(data.table)
+
+# set the directory where the CSV files are located
+folder_path <- dir
+
+# recursively find all CSV files in the directory and subdirectories
+file_paths <- list.files(path = folder_path, pattern = "\\.csv$", recursive = TRUE, full.names = TRUE)
+
+# read all CSV files into a list of data frames
+data_list <- file_paths %>% map(read.csv)
+
+for (n in 1:length(data_list)){
+  
+  data_list[[n]]$Path <- file_paths[n]
+  
+}
+
+# combine all data frames into a single data frame
+data_df <- data_list %>% reduce(bind_rows) %>% as.data.table()
+
+data_df$Arp3 <- "WT"
+data_df$Treatment <- "Taxol"
+data_df$Batch <- "series_1"
+
+data_df[data_df$Path %like% "WT", ]$Arp3 <- "WT"
+data_df[data_df$Path %like% "DMSO", ]$Treatment <- "DMSO"
+data_df[data_df$Path %like% "series2", ]$Batch <- "series_2"
+data_df[data_df$Path %like% "series3", ]$Batch <- "series_3"
+data_df[data_df$Path %like% "series4", ]$Batch <- "series_4"
+
+data_df$Arp3_treatment <- paste(data_df$Arp3, data_df$Treatment, sep= "_")
+
+data_df <- data_df %>% as.data.table()
+
+data_df$Cell <- "test"
+n <- data_df[Length == 0] %>% nrow()
+
+data_df[Length == 0]$Cell <- paste("Cell_", 1:n, sep="")
+
+for (n in 2:nrow(data_df))
+{
+  if(data_df$Length[n] > 0){
+    
+    data_df$Cell[n] <- data_df$Cell[n-1]
+
+    } else {
+              }
+
+}
+```
+
+# Extract cell level dataframe
+```{r}
+df_Cell<- data_df[Length == 0]
+df_Cell$Longest <- 0
+df_Cell$Longest_2 <- 0
+df_Cell$Neurite_No <- 0
+
+for (n in 1:nrow(df_Cell))
+{
+df_Cell$Longest[n] <- data_df[ Cell == df_Cell$Cell[n]]$Length %>% max() # get the longest neurite length
+df_Cell$Neurite_No[n] <- data_df[Cell == df_Cell$Cell[n]] %>% nrow() - 1 # get the neurite number
+}
+
+for (n in 1:nrow(df_Cell))
+{
+  
+  if(df_Cell$Neurite_No[n] >= 2){
+    
+    x <- data_df[ Cell == df_Cell$Cell[n]]$Length %>% sort()
+    df_Cell$Longest_2[n] <- x[length(x)-1]
+
+    } else { 
+      
+      df_Cell$Longest_2[n] <- 0 
+      
+              }
+}
+
+```
+
+
+```{r message = FALSE, warning=FALSE, fig.width=5}
+df_Cell[Longest_2 <70 & Treatment == "Taxol"]$Arp3_treatment %>% table()
+my_comparisons <- list( c("WT_DMSO", "WT_Taxol"))
+
+ggplot(df_Cell, aes(x=Arp3_treatment, y=Longest_2, fill=Arp3_treatment)) + scale_fill_brewer(palette="Dark2") + theme_classic()+
+  geom_violin(trim=F, kernel ="gaussian", adjust=1) +
+  geom_boxplot(width=0.2, fill="white")+
+  #scale_y_continuous(expand = c(0, 0), limits = c(-100 ,350), breaks = scales::pretty_breaks(n = 5)) +
+  stat_compare_means(comparisons = my_comparisons) # Add pairwise comparisons p-value
+#stat_kruskal_test(aes(group = Arp3_treatment), label = "p.format")
+  #stat_compare_means(label.y = 22)     # Add global p-value 
+
+
+```
+```{r}
+df_Cell%>% 
+  easyGgplot2::ggplot2.violinplot(yName="P2rx3", xName='Ident.2', groupName='Ident.2', 
+                     addDot=TRUE, dotSize=1,dotPosition="jitter", jitter=0.2, 
+                     trim=F,  kernel ="gaussian", adjust=1)+
+  #geom_boxplot(width=0.1, fill="white")  +
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  scale_fill_npg()+ 
+  scale_y_continuous(expand = c(0, 0),  breaks = scales::pretty_breaks(n = 8)) +
+ # stat_compare_means(ref.group = "4", label = "p.signif", method="wilcox.test", label.y = 1200)+
+ stat_compare_means(comparisons = my_comparisons, paired=F, method="wilcox.test") +
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+```
+
+```{r}
+ggsave(
+  "avg_2.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+```{r}
+a <- ggplot(df_Cell, aes(x = Longest_2))
+
+mu <- df_Cell %>% 
+  group_by(Arp3_treatment) %>%
+  summarise(grp.mean = mean(Longest_2))
+mu
+
+# Change fill color by sex and add mean line
+# Use semi-transparent fill: alpha = 0.4
+a + geom_density(aes(fill = Arp3_treatment), alpha = 0.4) +
+  #geom_vline(aes(xintercept = grp.mean, color = Arp3_treatment), data = mu, linetype = "dashed") +
+  scale_fill_brewer(palette="Dark2") + theme_classic()+
+  geom_vline(xintercept = 70, linetype = "dashed")
+  
+```
+
+```{r}
+df_Cell %>% group_by(Batch)
+```
+
+```{r}
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save(df_list, df_1, csv_list, Path_1, file = saved_path)
+
+```

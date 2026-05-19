@@ -1,0 +1,303 @@
+---
+title: "ED Fig 11i — Somatic EB3 intensity timecourse during washout"
+output: html_notebook
+---
+
+<!--
+# What this file does
+
+Computes the **time-course of somatic EB3 fluorescence intensity** during
+the CK666 → washout recovery window. For each cell, intensity is binned
+into 25-frame time windows, normalized to that cell's own mean (so each
+cell starts around 1.0), then aggregated to a population mean ± SE
+ribbon over time. A paired test compares bin 0 vs bin 4 (early vs late
+washout).
+
+This file feeds **ED Fig 11i** (Source Data sheet `ED Fig 11i`,
+columns `Batch | bin | cell | Intensity_norm`) — the integrated EB3
+line graph over time during the washout vs CK666 recovery experiment.
+
+## NOT to be confused with the sibling file `edfig11f_eb3_tip_integrated_intensity.Rmd`
+
+These two files look similar at first read but compute different things:
+
+| Aspect | This file (`edfig11i_*`) | Sibling (`edfig11f_*`) |
+|---|---|---|
+| ROI | **Soma** (`soma_EB3.csv`) | **Neurite tip** (`Tip_EB3.csv`) |
+| Time treatment | **Binned timecourse** (25-frame bins) | **Single timepoint** per condition |
+| Comparison | Bin 0 vs bin 4 (paired *t*-test) | Before vs CK666 vs Washout (Wilcoxon) |
+| Source Data | ED Fig 11i (`Batch \| bin \| cell \| Intensity_norm`) | ED Fig 11f (`Cell_id \| IntDen \| Condition \| Batch \| Label`) |
+| Output PDFs | `soma_EB3_timelapse.pdf`, `soma_EB3.pdf` | `TipEB3_CK666.pdf` |
+
+If you're tracking ED Fig 11i (the line graph over time): this file.
+If you're tracking ED Fig 11f (the boxplot at three discrete conditions):
+the sibling.
+
+## Inputs
+
+- `df_list.RData` (cached environment, optional).
+- `soma_EB3.csv` files in subfolders (one per acquisition session).
+  Each CSV has time as the first column and one column per cell, with
+  intensity values per frame.
+- The folder structure under `Path_1` is expected to include a path
+  segment matching `CK666_LA_EB3/<batch_id>/`; the regex
+  `sub(".*/CK666_LA_EB3/([^/]+).*", "\\1", ...)` extracts the batch ID
+  for each CSV.
+
+## Outputs (written next to this Rmd)
+
+- `soma_EB3_timelapse.pdf` — population-level line plot of normalized
+  somatic EB3 intensity vs time bin (mean ± SE ribbon).
+- `soma_EB3.pdf` — violin + paired-line plot comparing bin 0 to bin 4
+  per cell, with a paired *t*-test.
+- Updated `df_list.RData` (re-saved at end with post-analysis state).
+
+## Beginner notes
+
+- **EB3-SnAP-SiR** = EB3 (a microtubule plus-end-tracking protein)
+  fused to a SnAP-tag and labeled with a silicon-rhodamine (SiR)
+  far-red fluorophore. Brighter intensity = more polymerizing
+  microtubule plus-ends in the ROI.
+- **Why bin into 25-frame windows?** Acquisition is at high temporal
+  resolution (one frame per few seconds); 25-frame bins (~1-2 minutes
+  each) reduce noise while preserving the slow recovery dynamics
+  during washout.
+- **Why normalize each cell to its own mean?** Different cells have
+  different baseline EB3 expression levels. Per-cell normalization
+  (each cell's mean = 1) puts every cell on a comparable scale before
+  population averaging, so a cell with 2× expression doesn't dominate
+  the mean.
+- **Outlier removal at bin 3** uses `rstatix::identify_outliers` (Q1 −
+  1.5·IQR / Q3 + 1.5·IQR rule) on bin 3 specifically (mid-recovery)
+  and drops the affected cells from all bins for consistency.
+- **Why paired *t*-test bin 0 vs bin 4?** Each cell appears in both
+  bins (paired observations); the test asks whether per-cell intensity
+  differs between early and late recovery.
+
+## Original G:\ source
+
+`G:/Figure S11_Microtubules/Fig. S11f/R_scripts/Neurite activity corr.Rmd`
+-->
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# Library imports. Commented-out libraries (pracma, peakPick, quantmod,
+# pheatmap, viridis, hrbrthemes, superheat) were in the original but
+# were either disabled by the author or are unused by this notebook.
+# Left commented for traceability with the G:\ source.
+#library(pracma)
+#library(peakPick)
+#library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+#library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+#library(viridis)
+#library(hrbrthemes)
+library(data.table)
+#library(superheat)
+```
+
+## Load existing/saved environment (.RData)
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData", sep = "/")
+load(file = saved_path)
+```
+
+## Save environment (utility — re-saves intermediate state)
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData", sep = "/")
+save.image(file = saved_path)
+```
+
+## Locate and read all `soma_EB3.csv` files (one per acquisition session)
+
+```{r}
+library(readr)
+library(purrr)
+
+# 1) Set the root folder you want to search.
+root <- Path_1
+
+# 2) Find matching files (recursively).
+files <- list.files(root,
+                    pattern = "^soma_EB3\\.csv$",
+                    recursive = TRUE,
+                    full.names = TRUE)
+
+if (length(files) == 0) stop("No files named 'soma_EB3.csv' were found under: ", root)
+
+# 3) Extract a batch ID for each CSV from the path
+#    (e.g., .../CK666_LA_EB3/240312_DIV1/soma_EB3.csv -> 240312_DIV1).
+obj_names <- sub(".*/CK666_LA_EB3/([^/]+).*", "\\1", gsub("\\\\", "/", files))
+
+# 4) Read into a named list, key = batch ID.
+soma_list <- set_names(
+  map(files, ~ read_csv(.x, show_col_types = FALSE)),
+  obj_names
+)
+```
+
+## Bin into 25-frame time windows + per-cell normalization
+
+For each session-level CSV: bin the rows into groups of 25 (approx 1-2
+minutes per bin given the acquisition rate), average within each bin,
+then normalize every cell column by its own mean (so each cell's series
+centers around 1.0). Reshape to long format for plotting and concatenate
+all sessions.
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+soma_list_2 <- list()
+
+for (n in 1:length(soma_list)) {
+  df <- soma_list[[n]]
+  # First column is time; all others are per-cell intensities.
+  bin_size <- 25
+  time_var <- names(df)[1]
+
+  # Average rows within each bin of `bin_size` frames.
+  df_avg25 <- df %>%
+    mutate(bin = ceiling(row_number() / bin_size)) %>%
+    group_by(bin) %>%
+    summarise(
+      !!time_var := mean(.data[[time_var]], na.rm = TRUE),     # midpoint time of the bin
+      across(-all_of(time_var), ~ mean(.x, na.rm = TRUE)),
+      .groups = "drop"
+    )
+
+  # Normalize each cell column by its own mean so comparisons are scale-invariant.
+  df_norm <- df_avg25[-2] %>%
+    mutate(across(-1, ~ {
+      m <- mean(., na.rm = TRUE)
+      if (is.finite(m) && m != 0) . / m else NA_real_
+    }))
+
+  df_norm$bin <- df_norm$bin - 1   # make bins 0-indexed for plotting
+
+  # Long format for plotting.
+  df_long <- df_norm %>%
+    pivot_longer(-1, names_to = "cell", values_to = "value_norm")
+
+  soma_list_2[[n]] <- df_long
+}
+
+names(soma_list_2) <- names(soma_list)
+
+# Concatenate all sessions into one long table; keep batch-id `source` column.
+combined <- bind_rows(soma_list_2, .id = "source") %>%
+  relocate(source, .before = 1) %>% as.data.table()
+```
+
+## Outlier removal (cells whose bin-3 normalized value is an outlier)
+
+```{r}
+outliers <- combined[bin == 3] %>%
+  group_by(bin) %>%
+  rstatix::identify_outliers(value_norm)
+
+# Drop the outlier cells from ALL bins so the per-cell traces stay intact.
+combined_2 <- combined[!(cell %in% outliers$cell)]
+```
+
+```{r}
+summary_2 <- combined_2 %>%
+  group_by(bin) %>%
+  rstatix::get_summary_stats(value_norm) %>% as.data.table()
+```
+
+## Plot — per-cell traces over time
+
+```{r}
+combined_2 %>%
+  ggplot(aes(x = bin, y = value_norm, color = cell, group = cell)) +
+  geom_line(alpha = 0.9, linewidth = 0.5) +
+  labs(x = "bin",
+       y = "Normalized value (value / column mean)",
+       color = "Cell") +
+  theme_minimal() +
+  scale_x_continuous(expand = c(0, 0), limits = c(0, 5),
+                     breaks = scales::pretty_breaks(n = 5)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0.4, 1.8),
+                     breaks = scales::pretty_breaks(n = 5)) +
+  theme(legend.position = "none")
+```
+
+## Plot — population mean ± SE ribbon over time (THIS IS ED FIG 11i)
+
+```{r message=FALSE, warning=FALSE, fig.width=10}
+library(hrbrthemes)
+summary_2 %>%
+  ggplot(aes(x = bin, y = mean)) +
+  geom_ribbon(aes(ymin = mean - se, ymax = mean + se), fill = "lightgrey") +
+  geom_line(size = 1, alpha = 1) +
+  theme_ipsum(grid = FALSE, ticks = TRUE) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
+  scale_y_continuous(expand = c(0, 0), limits = c(0.9, 1.1),
+                     breaks = scales::pretty_breaks(n = 6)) +
+  scale_x_continuous(expand = c(0, 0),
+                     breaks = scales::pretty_breaks(n = 5),
+                     limits = c(0, 5)) +
+  theme_linedraw() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text = element_text(size = 12, face = "bold"))
+```
+
+```{r}
+ggsave("soma_EB3_timelapse.pdf", plot = last_plot(), device = "pdf")
+```
+
+## Paired comparison — bin 0 vs bin 4 (early vs late washout)
+
+```{r message=FALSE, warning=FALSE, fig.width=10}
+library(ggpubr)
+
+my_comparisons <- list(c("0", "4"))
+pj <- position_jitter(seed = 1, width = 0.1, height = 0)
+
+combined_2[bin == 4 | bin == 0] %>%
+  mutate(bin = as.character(bin)) %>%
+  ggplot(aes(x = bin, y = value_norm)) +
+  theme_classic() +
+  geom_violin(trim = FALSE, kernel = "gaussian", adjust = 1, scale = "area") +
+  geom_boxplot(width = 0.2, outlier.colour = NA, fill = "white") +
+  geom_jitter(shape = 16, position = pj) +
+  geom_path(aes(group = cell), alpha = 0.5, position = pj) +
+  stat_compare_means(comparisons = my_comparisons,
+                     paired = TRUE, method = "t.test",
+                     label = "{p.adj.format}{p.adj.signif}") +
+  theme_ipsum(grid = FALSE, ticks = TRUE) +
+  theme_linedraw() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text = element_text(size = 12, face = "bold", angle = 0))
+```
+
+```{r}
+combined_2[bin == 4 | bin == 0]$bin %>% table()
+ggsave("soma_EB3.pdf", plot = last_plot(), device = "pdf")
+```

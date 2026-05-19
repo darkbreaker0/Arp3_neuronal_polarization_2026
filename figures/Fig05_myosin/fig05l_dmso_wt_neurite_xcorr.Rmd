@@ -1,0 +1,685 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis)
+library(hrbrthemes)
+library(data.table)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(Path_1)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+load(file=saved_path)
+
+```
+
+## Read .csv files
+```{r}
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+subfolder_list  <- subfolder_list [ grepl(".tif", subfolder_list) ]
+freq <- 0.2 
+pixel <- 0.1609 # set pixel size
+csv_list<- list()
+df_list<- list()
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list))  
+{
+  csv_list[[n]] <- list.files(subfolder_list[n],pattern = "(.*)csv$", 
+                     recursive = TRUE,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  df <- do.call("cbind", lapply(csv_list[[n]], read.csv, header = TRUE))
+  df <-df[, grep("Length|Tip",  colnames(df)), drop = FALSE] %>% as.data.table()
+  df <- mapply(`*`,df, pixel)
+   df <-pracma::hampel(df, k=3)$y # remove jumping spikes
+    colnames(df)<- paste("Length", seq( from = 1, to = ncol(df) ),  sep = ".")
+  
+  df_list[[n]] <-df
+  
+}
+
+n
+# rename dataframe names within the dataframe list 
+
+subfolder_name_list <- list.dirs(path =Path_1, full.names = F, recursive = TRUE)
+names(df_list) <- subfolder_name_list [ grepl(".tif", subfolder_name_list) ]
+```
+
+```{r}
+
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+subfolder_list  <- subfolder_list [ grepl(".tif", subfolder_list) ]
+subfolder_list  <- subfolder_list [ grepl("170515", subfolder_list) ]
+freq <- 0.2 
+pixel <- 0.1063 # set pixel size
+csv_list_170515<- list()
+df_list_170515<- list()
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list))  
+{
+  csv_list_170515[[n]] <- list.files(subfolder_list[n],pattern = "(.*)csv$", 
+                     recursive = TRUE,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  df <- do.call("cbind", lapply(csv_list_170515[[n]], read.csv, header = TRUE))
+  df <-df[, grep("Length",  colnames(df)), drop = FALSE] %>% as.data.table()
+  df <- mapply(`*`,df, pixel)
+   df <-pracma::hampel(df, k=3)$y # remove jumping spikes
+    colnames(df)<- paste("Length", seq( from = 1, to = ncol(df) ),  sep = ".")
+  
+  df_list_170515[[n]] <-df
+  
+}
+
+# rename dataframe names within the dataframe list 
+
+subfolder_name_list <- list.dirs(path =Path_1, full.names = F, recursive = TRUE)
+subfolder_name_list <- subfolder_name_list [ grepl("170515", subfolder_name_list) ]
+names(df_list_170515) <- subfolder_name_list [ grepl(".tif", subfolder_name_list) ]
+
+```
+
+```{r}
+df_list[1:13]<- df_list_170515[1:13]
+
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+
+```
+
+## Import time-series neurite length data
+```{r}
+mts_list<- list()
+mts_stationary_list <- list()
+
+for (n in 1:length(df_list))  {
+ 
+  length_mat<-df_list[[n]] %>% as.data.table()
+  length_mat$sum_length <- length_mat %>% rowSums() 
+  df <- length_mat %>% ts(frequency = freq, start = c(0, 1)) 
+  mts_list[[n]]<- df
+  
+  df <- df %>% 
+  forecast::ma(3) %>%     # Moving Average to smoothen out outliers/noise
+    MTS::diffM(d=1) %>%   # Differential 
+    #forecast::ma(3) %>% 
+    ts(frequency = freq, start = c(0, 1))
+  
+  colnames(df) <-colnames(mts_list[[n]])
+ 
+  mts_stationary_list[[n]] <- df 
+  
+}
+
+names(mts_list)<- names(df_list)
+names(mts_stationary_list)<- names(df_list)
+```
+
+## We convert the multiple times series data to appropriate dataframe for stack area plot
+```{r}
+
+selected_list <-mts_stationary_list
+stacked_avg_list <- list()
+
+for (m in 1:length(selected_list)) {
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+  
+  colNames <- colnames(selected_list[[m]][ ,selected_data])
+  length_mat<- selected_list[[m]][, selected_data] %>%  forecast::ma(5) %>% as.data.frame() # add forecast::ma(5) if smoothening is wanted
+  colnames(length_mat) <- colNames 
+  
+  mts_dim<- dim(length_mat)
+  length_mat$Time <- as.numeric(rep(seq(0,mts_dim[1]-1)* 1/freq), times=mts_dim[2] )
+  
+ stacked_avg_list [[m]] <- length_mat %>% gather(neurite, Length, -Time) %>% as.data.table()  
+}
+
+```
+
+## Calculate neurite outgrowth/retraction events from the stationary/differential curves at different thresholds
+
+```{r}
+selected_list <- mts_stationary_list # mts_stationary_list or mts_avg_list
+
+pos_neg_thres_list <- list()
+
+res <- 0.05
+fold<- 10
+
+for (n in 1: fold){ 
+  
+  thres= n*res
+  pos_neg_list <- list()
+  
+  for (m in 1:length(selected_list)) {
+    
+    selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+    length_mat<- selected_list[[m]][, selected_data] %>% as.data.frame()
+    
+    length_mat2 <- length_mat
+    neurite_num <- ncol(length_mat)
+  
+    tab1 <- apply(length_mat, 1, function(x) sum(x > thres, na.rm = TRUE)) %>%  table() %>% as.data.table()
+    tab1$act<- "extension"
+    names(tab1)[1]<- "Num"
+    tab1$Num <- tab1$Num %>% as.numeric()
+    tab1$pct<- tab1$N/sum(tab1$N)
+    tab1$rel_n <- tab1$Num/neurite_num
+    tab1$Cell<- names(df_list)[m]
+    
+    tab2 <- apply(length_mat, 1, function(x) sum(x < -thres, na.rm = TRUE)) %>%  table() %>% as.data.table()
+    tab2$act<- "retraction"
+    names(tab2)[1]<- "Num"
+    tab2$Num <- tab2$Num %>% as.numeric()
+    tab2$pct<- tab2$N /sum(tab2$N)
+    tab2$rel_n <- tab2$Num/neurite_num
+    tab2$Cell<- names(df_list)[m]
+  
+    tab3 <- apply(length_mat, 1, function(x) sum(x < thres & x > -thres, na.rm = TRUE)) %>%  table() %>% as.data.table()
+    tab3$act<- "pause"
+    names(tab3)[1]<- "Num"
+    tab3$Num <- tab3$Num %>% as.numeric()
+    tab3$pct<- tab3$N/sum(tab3$N)
+    tab3$rel_n <- tab3$Num/neurite_num
+    tab3$Cell<- names(df_list)[m]
+    
+    tab4 <- rbind(tab1, tab2, tab3)
+    tab4$Thres<- thres
+    
+    pos_neg_list[[m]] <- tab4
+  }
+
+  names(pos_neg_list)<- names(df_list)
+  
+  pos_neg_thres_list[[n]]<- assign(paste0("Thres_", thres, sep=""),pos_neg_list)
+  names(pos_neg_thres_list)[n]<- paste0("Thres_", thres, sep="")
+  
+}
+```
+
+```{r message=FALSE, warning=FALSE}
+summary_list <- list()
+
+for (n in 1: fold){
+  
+  pos_neg_list <- pos_neg_thres_list[[n]]
+  
+  pos_neg_tab_all <- pos_neg_list[[1]] 
+  
+  for (m in 2:length(pos_neg_list)) {
+    
+    df2 <- pos_neg_list[[m]] 
+    pos_neg_tab_all <- rbind(pos_neg_tab_all, df2) 
+  
+  }
+
+  tab <- pos_neg_tab_all[act == "extension"] %>% group_by(Num) %>% rstatix::get_summary_stats(pct)
+  tab$Thres<- n*res
+  summary_list [[n]] <- tab 
+
+}
+
+names(summary_list) <-  names(pos_neg_thres_list)
+
+df_summary_all <- summary_list [[1]]
+
+for (n in 2:fold){
+  df_summary_all <-  rbind (df_summary_all, summary_list [[n]])
+  
+}
+
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+ggplot(df_summary_all, aes(x=Num, y=mean, group=Thres)) +
+  
+  geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd, fill=Thres),   alpha=0.05) + 
+  geom_line(aes(colour=Thres), size=1, alpha=1) +
+  
+  scale_y_continuous(  breaks = scales::pretty_breaks(n = 6))+
+  scale_x_continuous(name="Neurite_No", limits=c(0, 6), expand = c(0, 0), breaks = c(0,1,2,3,4,5,6))+
+  
+  scale_fill_viridis(discrete = F) + # scale_fill_brewer(palette = "Set2") +
+  scale_color_viridis(discrete = F)+
+
+  theme_linedraw()+
+  geom_hline(yintercept=0, linetype="dashed", color = "black")+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12), 
+        legend.position = "none") #for centering the text
+```
+```{r}
+ggsave(
+  "pause_freq.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+```{r}
+pos_neg_list <- pos_neg_thres_list$Thres_0.1
+
+pos_neg_tab_all <- pos_neg_list[[1]] 
+
+for (m in 2:length(pos_neg_list)) {
+  
+  df2 <- pos_neg_list[[m]] 
+  pos_neg_tab_all <- rbind(pos_neg_tab_all, df2) 
+
+}
+
+tab <- pos_neg_tab_all[act == "extension"]
+
+df_summary <- tab %>% group_by(Num) %>% rstatix::get_summary_stats(pct)
+
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+# remove cells in "without any outgrowth" state more than 60% of the time 
+removed <- pos_neg_tab_all[act == "extension" & Num == 0 & pct > 0.5] 
+removed_cell<- removed$Cell
+pos_neg_tab_all_removed<- pos_neg_tab_all[grep(paste(removed_cell,collapse="|"), pos_neg_tab_all$Cell , invert=TRUE) ,]
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+ggplot(data=tab, aes(x=Num, y=pct, group=Cell)) +
+  geom_line((aes(color=Cell)))+
+  geom_point((aes(color=Cell)))+ 
+scale_x_continuous(name="Neurite_No", limits=c(0, 6), breaks = c(0,1,2,3,4,5,6))+
+theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12), 
+        legend.position = "none") #for centering the text
+```
+
+## We smoothen the stationary profiles first, separete outrgwoth and retraction events, and sum the changes of all neurites. (Smoothening -> separate -> sum)
+```{r warning=FALSE}
+
+# Smoothen the stationary (diff) profiles and optionally filter out small length change with threshold
+
+selected_list <- mts_stationary_list # mts_stationary_list or mts_avg_list
+
+mts_stationary_pos_list <- list()
+mts_stationary_neg_list <- list()
+thres= 0.0 # change threshold here
+
+# Positive peaks only (outgrowth event)
+for (m in 1:length(selected_list)) {
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+  length_mat<- selected_list[[m]][, selected_data ]
+  
+  length_mat_avg<- length_mat %>% forecast::ma(3) %>% as.ts() # Average smoothening
+  colnames(length_mat_avg)<-colnames(length_mat)
+
+  mts_dim<- dim(length_mat_avg)
+    for (n in 1:mts_dim[2]){
+      length_mat_avg[, n][length_mat_avg[ , colnames(length_mat_avg)[n]] < thres] <- 0 
+    }
+  
+  length_mat_avg <- length_mat_avg %>% as.data.frame() 
+  length_mat_avg$sum <- length_mat_avg  %>% rowSums()  # We sum up the extent of outgrowth at each time point
+  mts_stationary_pos_list[[m]] <- length_mat_avg %>% ts(frequency = freq, start = c(0, 1)) 
+
+}
+
+# Negative peaks only (retraction event)
+for (m in 1:length(selected_list)) {
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+  length_mat<- selected_list[[m]][, selected_data ]
+  length_mat_avg<- length_mat %>% forecast::ma(3) %>% as.ts() # Average smoothening
+  colnames(length_mat_avg)<-colnames(length_mat)
+  
+  mts_dim<- dim(length_mat_avg)
+    for (n in 1:mts_dim[2]){
+      length_mat_avg[, n][length_mat_avg[ , colnames(length_mat_avg)[n]] > - thres] <- 0 
+    }
+  length_mat_avg <- length_mat_avg %>% as.data.frame() 
+  length_mat_avg$sum <- length_mat_avg  %>% rowSums()  # We sum up the extent of retraction at each time point
+  mts_stationary_neg_list[[m]] <- length_mat_avg %>% ts(frequency = freq, start = c(0, 1)) 
+}
+
+```
+
+# for WT extension and retraction velocity
+```{r}
+Ext_velocity_WT_DMSO <- list()
+Ret_velocity_WT_DMSO <- list()
+
+for (m in 1:length(mts_stationary_pos_list)){
+  
+df <- mts_stationary_pos_list[[m]] %>% as.data.frame()
+df[ df == 0 ] <- NA
+df1 <- colMeans(df, na.rm = T)  %>% as.data.frame()
+colnames(df1) <- "mean_vel"
+df1$median_vel <- df %>% as.matrix() %>% matrixStats::colMedians(na.rm = T)  # calculate the average velocity through the observation window. Or matrixStats::colMedians
+df1$cond <- "WT"
+df1$treatment <- "DMSO"
+df1$cell <- names(mts_list)[m] %>% basename() 
+df1$neurite <- rownames(df1)
+Ext_velocity_WT_DMSO [[m]] <- df1
+
+df <- mts_stationary_neg_list[[m]] %>% as.data.frame()
+df [ df == 0 ] <- NA
+df2 <- colMeans(df, na.rm = T)  %>% as.data.frame() 
+colnames(df2) <- "mean_vel"
+df2$median_vel <- df %>% as.matrix() %>% matrixStats::colMedians(na.rm = T)  # calculate the average velocity through the observation window. Or matrixStats::colMedians
+df2$cond <- "WT"
+df2$treatment <- "DMSO"
+df2$cell <- names(mts_list)[m] %>% basename() 
+df2$neurite <- rownames(df2)
+Ret_velocity_WT_DMSO [[m]] <- df2
+  
+}
+
+```
+
+```{r}
+Ext_velocity_WT_df <- Ext_velocity_WT_DMSO %>% reduce(bind_rows)  %>% as.data.frame()
+Ext_velocity_WT_df$Growth <- "Extension"
+Ret_velocity_WT_df <- Ret_velocity_WT_DMSO %>% reduce(bind_rows)  %>% as.data.frame()
+Ret_velocity_WT_df$Growth <- "Retraction"
+
+velocity_comb_df<- rbind(Ext_velocity_WT_df, Ret_velocity_WT_df) %>% as.data.table()
+#names(velocity_comb_df)[1]<- "Velocity"
+velocity_comb_df <- velocity_comb_df[neurite != "sum"]
+
+saveRDS(velocity_comb_df, "WT_DMSO.rds")
+
+```
+
+## We convert the multiple times series data to appropriate dataframe for stack area plot
+```{r warning=FALSE}
+
+# Positive peaks only (outgrowth event)
+selected_list <- mts_stationary_pos_list
+stacked_stationary_pos_list <- list()
+
+for (m in 1:length(selected_list)) {
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+  length_mat<- selected_list[[m]][, selected_data] %>% as.data.frame() 
+  mts_dim<- dim(length_mat)
+  length_mat$Time <- as.numeric(rep(seq(0,mts_dim[1]-1)* 1/freq), times=mts_dim[2] )
+  
+  stacked_mat_list <-list()
+    for (n in 1:mts_dim[2]){
+     stacked_mat <- length_mat[ ,c(mts_dim[2]+1, n)]
+     stacked_mat$neurite <- colnames(length_mat)[n]
+     colnames(stacked_mat)[2]<-"Length"
+     stacked_mat_list[[n]]<-stacked_mat
+    }
+  stacked_mat <-  data.table::rbindlist(stacked_mat_list)
+ stacked_stationary_pos_list[[m]] <- stacked_mat
+}
+
+# Negtive peaks only (retraction event)
+selected_list <- mts_stationary_neg_list
+stacked_stationary_neg_list <- list()
+
+for (m in 1:length(selected_list)) {
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+  length_mat<- selected_list[[m]][, selected_data] %>% as.data.frame() 
+  mts_dim<- dim(length_mat)
+  length_mat$Time <- as.numeric(rep(seq(0,mts_dim[1]-1)* 1/freq), times=mts_dim[2] )
+  
+  stacked_mat_list <-list()
+    for (n in 1:mts_dim[2]){
+     stacked_mat <- length_mat[ ,c(mts_dim[2]+1, n)]
+     stacked_mat$neurite <- colnames(length_mat)[n]
+     colnames(stacked_mat)[2]<-"Length"
+     stacked_mat_list[[n]]<-stacked_mat
+    }
+  stacked_mat <-  data.table::rbindlist(stacked_mat_list)
+ stacked_stationary_neg_list[[m]] <- stacked_mat
+}
+
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+figA <-  stacked_stationary_pos_list[[18]] %>% 
+  ggplot(aes(x = Time, y = Length, fill = neurite)) +
+    geom_area(alpha=0.5 , size=.5, colour="white") +
+    scale_fill_viridis(discrete = T) + # scale_fill_brewer(palette = "Set2") +
+    theme_ipsum(grid = F, ticks = T) +  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold"),
+        legend.position = "none") #for centering the text
+
+figB <- stacked_stationary_neg_list[[18]] %>% 
+  ggplot(aes(x = Time, y = Length, fill = neurite)) +
+    geom_area(alpha=0.5 , size=.5, colour="white") +
+    scale_fill_viridis(discrete = T) + # scale_fill_brewer(palette = "Set2") +
+    theme_ipsum(grid = F, ticks = T) +  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold"),
+        legend.position = "none") #for centering the text
+ 
+ ggpubr::ggarrange(figA, figB, 
+                  labels = c("A", "B"),
+                  ncol = 1, nrow = 2,  legend="none")
+```
+
+## Import time-series neurite length data
+```{r}
+mts_list<- list()
+mts_stationary_list <- list()
+
+freq=0.2
+
+for (n in 1:length(df_list))  {
+ 
+  length_mat<-df_list[[n]] %>% as.data.table()
+  length_mat$sum_length <- length_mat %>% rowSums() 
+  
+  mts_list[[n]]<- length_mat %>% ts(frequency = freq, start = c(0, 1)) 
+
+  mts_sta <- mts_list[[n]] %>% 
+    forecast::ma(3)  %>% 
+    MTS::diffM(d=1) %>% 
+    ts(frequency = freq, start = c(0, 1))  
+
+  colnames(mts_sta)<-colnames(mts_list[[n]])
+ 
+  mts_stationary_list[[n]] <- mts_sta
+  
+}
+
+names(mts_list)<- names(df_list)
+names(mts_stationary_list)<- names(df_list)
+
+```
+
+## Here we separate the outrgwoth and retraction events first, sum the changes of all neurites, and then do smoothening. (separate -> sum -> smoothening)
+```{r}
+
+selected_list <- mts_stationary_list 
+
+mts_stationary_sum_list <- list()
+
+thres= 0.0 # change threshold here
+
+for (m in 1:length(selected_list)) {
+  
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]])) 
+  length_mat_pos<- selected_list[[m]][, selected_data ]
+  length_mat_neg<- selected_list[[m]][, selected_data ]
+  
+  mts_dim<- dim(length_mat_pos)
+  
+    for (n in 1:mts_dim[2]){
+      
+      # Positive values only (extension event)
+      length_mat_pos[, n][length_mat_pos[ , colnames(length_mat_pos)[n]] < 0] <- 0 
+      
+      # Negative values only (retraction event)
+      length_mat_neg[, n][length_mat_neg[ , colnames(length_mat_neg)[n]] > 0] <- 0 
+    }
+  
+  length_mat_pos <- as.data.frame(length_mat_pos)
+  length_mat_neg <- as.data.frame(length_mat_neg)
+   
+  length_mat_pos$sum <- length_mat_pos  %>% rowSums()  
+  length_mat_neg$sum <- length_mat_neg  %>% rowSums()  
+  
+  length_mat_pos <- length_mat_pos %>% ts(frequency = freq, start = c(0, 1))
+  length_mat_neg <- length_mat_neg %>% ts(frequency = freq, start = c(0, 1))
+  
+  length_mat_sum <- ts.union(length_mat_pos[ ,"sum"], length_mat_neg[ ,"sum"]) 
+  
+  length_mat_sum <- length_mat_sum %>% 
+    forecast::ma(3) %>% 
+    as.ts() # Average smoothening
+  
+  colnames(length_mat_sum)<-c("Pos", "Neg")
+  
+  length_mat_sum [, "Pos"][length_mat_sum [, "Pos"] < thres] <- 0 
+  length_mat_sum [, "Neg"][length_mat_sum [, "Neg"] > -thres] <- 0 
+  
+  mts_stationary_sum_list[[m]] <- length_mat_sum
+
+}
+
+names(mts_stationary_sum_list)<- names(mts_stationary_list )
+
+```
+
+# Time-lagged cross-corrleation of outgrowth and retraction profiles
+```{r warning=FALSE}
+length_ccf_list <- list()
+
+for (m in 1:length(mts_stationary_sum_list)) {
+  
+  selected_length_sta_sum <- mts_stationary_sum_list[[m]]
+
+   length_ccf_plot <-ccf (selected_length_sta_sum[, "Pos"],  
+                            -selected_length_sta_sum[, "Neg"], 
+                            type = "correlation", 
+                            na.action = na.pass, plot=F,
+                            lag.max=100) 
+  
+  length_ccf_list[[m]] <- length_ccf_plot 
+  
+}
+
+names(length_ccf_list) <-  names(mts_stationary_sum_list)
+
+length_ccf <- length_ccf_list[[1]][["acf"]] %>% as.data.frame()
+
+for (m in 2:length(length_ccf_list)) {
+  
+  length_ccf <- cbind(length_ccf , length_ccf_list[[m]][["acf"]])
+}
+
+colnames(length_ccf) <- names(length_ccf_list)
+
+length_ccf$lag<- c(-100:100)
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+
+selected_ccf <- length_ccf %>% as.data.table()  
+selected_ccf$lag<- selected_ccf$lag/freq
+
+stacked_ccf_mat <- gather(selected_ccf, Cell, ccf, -lag)
+df_summary <- stacked_ccf_mat %>% group_by(lag) %>% rstatix::get_summary_stats(ccf)
+
+```
+
+```{r}
+ggsave(
+  "ext_ret_corr.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+# Time-lagged cross-corrleation of outgrowth and retraction profiles
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+
+```
+
+## moving/rolling window cross-correlation
+## windowed Time Lagged Cross Correlation (wTLCC) 
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(saved_path)
+```
+
+```{r}
+library(biwavelet)
+library(WaveletComp)
+# install.packages("WaveletComp")
+
+length_mat<- mts_stationary_sum_list[[1]] %>%  tseries::na.remove() %>% as.data.frame() 
+mts_dim<- dim(length_mat)
+length_mat$Time <- as.numeric(rep(seq(0,mts_dim[1]-1)* 1/freq), times=mts_dim[2] )
+length_mat <- length_mat[, c(3, 1, 2)]
+
+ts_1 <- length_mat[, c(1,2)]
+ts_2 <- length_mat[, c(1,3)]
+
+d1d2.xwt <- xwt(ts_1,ts_1) # Compute cross-wavelet
+d1d2.wtc <- wtc(ts_1,ts_1) # Compute cross-wavelet
+
+par(oma = c(0, 0, 0, 1), mar = c(5, 4, 4, 5) + 0.1)
+plot(d1d2.xwt, type = "power.corr.norm", plot.cb = TRUE, plot.phase = TRUE)
+
+d1d2.xwt %>% plot.biwavelet(type = "power.corr.norm", plot.sig=T, plot.cb = TRUE, plot.phase = TRUE)
+
+my.wc <- analyze.coherency(length_mat, my.pair = c(2,3), loess.span = 0, dt = 1, dj = 1/20, make.pval = TRUE, n.sim = 10)
+
+wc.avg(my.wc, siglvl = 0.01, sigcol = "red", sigpch = 20,periodlab = "period (days)")
+
+plot(d1d2.xwt, type = "power.corr.norm", plot.cb = TRUE, plot.phase = TRUE)
+wc.image(my.wc, n.levels = 250, legend.params = list(lab = "cross-wavelet power levels"), timelab = "", periodlab = "period (days)")
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.

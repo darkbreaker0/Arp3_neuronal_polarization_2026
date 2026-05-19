@@ -1,0 +1,487 @@
+---
+title: "ED Fig 6e - MRLC and Arp3 patch lifetime"
+author: "Lin et al., Nature 2026 (Bradke lab, DZNE)"
+output: html_notebook
+---
+
+<!--
+================================================================================
+  PANEL TARGETS (Lin et al., Nature 2026)
+================================================================================
+  Manuscript figure title (ED Fig 6):
+    "Myosin II and Arp2/3 complex assemble spatially discrete actin networks"
+
+  * ED Fig 6e - Arp3 and MRLC patch lifetime by compartment (GC/shaft/soma).
+                For Arp3: N = 2490/1203/2206 (same as ED Fig 3f).
+                For MRLC: N = 2995/3920/2703 (12 neurons, 3 experiments).
+                Stat: Kruskal-Wallis + Dunn's, Bonferroni.
+                Output: Myl_Arp3_LifeTime.eps, Myl_Arp3_LifeTime.csv
+
+  Essentiality: Replicate-QC. Canonical:
+                edfig06g_patch_profile_corr_canonical.Rmd.
+  D:\ source:   D:\DVElite\Myl_patch_quant_ExtFig. 6e\Patch_analysis.Rmd
+
+  Re-applied: 2026-05-12 (after pass-3 regression recovery).
+================================================================================
+-->
+
+```{r message=FALSE, warning=FALSE}
+
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(circular)
+library("gridExtra") 
+library("ggExtra") 
+library("ggpubr")
+```
+
+```{r Load RData, message=FALSE, warning=FALSE}
+dir  <- dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(dir)
+saved_path <- paste(dir, "Patch_dynamic.RData",  sep = "/")
+load(file=saved_path)
+
+#save.image(file=saved_path)
+```
+
+```{r message=FALSE, warning=FALSE}
+Path_1<- dir
+
+Tra_file<- list.files(Path_1,
+                      pattern = "_Tra(.*)csv$|^Traj.*\\.csv$",
+                     recursive = TRUE,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+
+MSD_file<- list.files(Path_1,
+                      pattern = "_MSD(.*)csv$",
+                     recursive = TRUE,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+
+# dirname(Path_1)
+
+Tra_list<- list()
+MSD_list<- list()
+
+for (n in 1:length(Tra_file)) 
+{
+  Tra_list[[n]] <- readr::read_delim(Tra_file[n], ",", escape_double = FALSE, col_names = T, trim_ws = TRUE) %>% as.data.frame()
+  MSD_list[[n]] <- readr::read_delim(MSD_file[n], ",", escape_double = FALSE, col_names = T, trim_ws = TRUE) %>% as.data.frame()
+  names(MSD_list[[n]]) <- c("X1", "Tra", "Tra_length", "MSS_slope", "MSS_yIn", "MSD_slope", "MSD_yIn", "DiffCoef", "Dist", "AvgDist", "Straightness", "Bending", "BendingLinear", "Efficiency", "PixelSize", "TimeInterval")
+  names(Tra_list)[n]<- Tra_file[n] %>% basename()
+  names(MSD_list)[n]<- Tra_file[n] %>% basename()
+  
+}
+
+```
+
+# Calculate the frequency of frame number of each pacth/trajectory
+```{r}
+frame_freq_list <- list()
+for (n in 1:length(Tra_list)) 
+{
+ 
+  df <- Tra_list[[n]]$Trajectory %>% table() %>% as.data.frame()
+  padded<-sprintf("%02d", n)
+  df$Region<- paste("Region_", padded)
+  df$Type<- dirname(Tra_file[n]) %>% basename()
+  df$cell <- names(Tra_list)[n]  %>% gsub("\\_D3D.*","",.)
+  df$POI<- "Myl"
+  frame_freq_list[[n]] <- df
+}
+
+names(frame_freq_list) <- Tra_file
+
+frame_freq <- frame_freq_list %>% reduce(bind_rows)
+
+```
+
+# Remove outliers
+```{r}
+frame_freq_GC<- frame_freq %>% subset(frame_freq$Type=="GC")
+outliers_GC <-  boxplot(frame_freq_GC$Freq, plot=FALSE)$out
+
+frame_freq_Soma<- frame_freq %>% subset(frame_freq$Type=="Soma")
+outliers_Soma <-  boxplot(frame_freq_Soma$Freq, plot=FALSE)$out
+
+frame_freq_NT<- frame_freq %>% subset(frame_freq$Type=="NT")
+outliers_NT <-  boxplot(frame_freq_NT$Freq, plot=FALSE)$out
+
+frame_freq_GC <- frame_freq_GC[-which(frame_freq_GC$Freq %in% outliers_GC),]
+frame_freq_Soma <- frame_freq_Soma[-which(frame_freq_Soma$Freq %in% outliers_Soma),]
+frame_freq_NT <- frame_freq_NT[-which(frame_freq_NT$Freq %in% outliers_NT),]
+
+frame_freq <- rbind(frame_freq_GC, frame_freq_Soma, frame_freq_NT)
+
+frame_freq $cell %>% table()
+```
+
+```{r}
+frame_freq_OL$Freq <- (frame_freq_OL$Freq-1)*5
+```
+
+```{r}
+filename <- file.choose()
+frame_freq_OL_Arp3 <- readRDS(filename)
+
+frame_freq_Arp3_Myl<- rbind(frame_freq_OL, frame_freq_OL_Arp3 )
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=8}
+ylim1 = boxplot.stats(frame_freq$Freq)$stats[c(1, 5)] #+ coord_cartesian(ylim = ylim1*1.05) 
+my_comparisons <- list( c("Soma", "GC"), c("GC", "NT"), c("Soma", "NT") )
+
+ggplot(frame_freq_Arp3_Myl, aes(x=Type, y=Freq, fill=POI)) + 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+  geom_violin(trim=F, kernel ="gaussian", adjust=1.5) +
+  geom_boxplot(width=0.2,  aes(x=Type, y=Freq, fill=POI))+
+  scale_y_continuous(expand = c(0, 0), limits = c(0 ,50), breaks = scales::pretty_breaks(n = 5)) +
+  #stat_compare_means(comparisons = my_comparisons, label.y = c(16, 18, 20))+ # Add pairwise comparisons p-value
+  #stat_compare_means(label.y = 22)     # Add global p-value 
+  geom_pwc(
+    aes(group = POI), tip.length = 0,
+    method = "wilcox.test", label = "{p.adj.format}{p.adj.signif}",
+    # p.adjust.method = "bonferroni", p.adjust.by = "panel",
+    bracket.nudge.y = 0.12) 
+```
+
+```{r}
+ggsave(
+  "Myl_Arp3_LifeTime.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+```{r}
+frame_freq_Arp3_Myl %>% write_csv("Myl_Arp3_LifeTime.csv")
+```
+
+```{r}
+for (n in 1:length(MSD_list)) 
+{
+  df <- MSD_list[[n]]
+  padded<-sprintf("%02d", n)
+  df$Region <- paste("Region_", padded)
+  df$Type<- dirname(MSD_file[n]) %>% basename()
+  df$cell <- names(MSD_list)[n] %>% fs::path_file() %>% gsub("\\-.*","",.)
+  df$POI<- "Myl"
+  MSD_list[[n]] <- df
+}
+
+# combine MSD dfs
+MSD_Myl<- MSD_list %>% reduce(bind_rows)
+```
+
+# Remove outliers
+```{r}
+MSD_GC<- MSD_Myl %>% subset(MSD_Myl$Type=="GC")
+outliers_GC <-  boxplot(MSD_GC$DiffCoef, plot=FALSE)$out
+
+MSD_Soma<- MSD_Myl %>% subset(MSD_Myl$Type=="Soma")
+outliers_Soma <-  boxplot(MSD_Soma$DiffCoef, plot=FALSE)$out
+
+MSD_NT<- MSD_Myl %>% subset(MSD_Myl$Type=="NT")
+outliers_NT <-  boxplot(MSD_NT$DiffCoef, plot=FALSE)$out
+
+MSD_GC <- MSD_GC[-which(MSD_GC$DiffCoef %in% outliers_GC),]
+MSD_Soma <- MSD_Soma[-which(MSD_Soma$DiffCoef %in% outliers_Soma),]
+MSD_NT <- MSD_NT[-which(MSD_NT$DiffCoef %in% outliers_NT),]
+
+MSD_Myl <- rbind(MSD_GC, MSD_Soma, MSD_NT)
+```
+
+```{r}
+filename <- file.choose()
+MSD_Arp3 <- readRDS(filename)
+```
+
+```{r}
+MSD_GC<- MSD_Arp3  %>% subset(MSD_Arp3$Type=="GC")
+outliers_GC <-  boxplot(MSD_GC$DiffCoef, plot=FALSE)$out
+
+MSD_Soma<- MSD_Arp3 %>% subset(MSD_Arp3$Type=="Soma")
+outliers_Soma <-  boxplot(MSD_Soma$DiffCoef, plot=FALSE)$out
+
+MSD_NT<- MSD_Arp3 %>% subset(MSD_Arp3$Type=="NT")
+outliers_NT <-  boxplot(MSD_NT$DiffCoef, plot=FALSE)$out
+
+MSD_GC <- MSD_GC[-which(MSD_GC$DiffCoef %in% outliers_GC),]
+MSD_Soma <- MSD_Soma[-which(MSD_Soma$DiffCoef %in% outliers_Soma),]
+MSD_NT <- MSD_NT[-which(MSD_NT$DiffCoef %in% outliers_NT),]
+
+MSD_Arp3 <- rbind(MSD_GC, MSD_Soma, MSD_NT)
+```
+
+```{r}
+MSD_Myl_Arp3<- rbind(MSD_Myl, MSD_Arp3)
+```
+
+```{r}
+MSD_ggplot_list <- list()
+
+for (n in 1:length(names(MSD_Myl_Arp3))) 
+{
+  MSD_ggplot_list[[n]] <- ggplot(MSD_Myl_Arp3, aes_string(x="Type", y=names(MSD_Myl_Arp3)[n], fill="POI")) 
+}
+
+names(MSD_ggplot_list)<- c("X1", "Tra", "Tra_length", "MSS_slope", "MSS_yIn", "MSD_slope", "MSD_yIn", "DiffCoef", "Dist", "AvgDist", "Straightness", "Bending", "BendingLinear", "Efficiency", "PixelSize", "TimeInterval")
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+fig_A <- ggplot(frame_freq_Arp3_Myl, aes(x=Type, y=Freq, fill=POI)) + 
+  scale_fill_brewer(palette="Dark2") + theme_classic()+
+  geom_violin(trim=F, kernel ="gaussian", adjust=1.5) +
+  geom_boxplot(width=0.1, aes(fill=POI))+
+  scale_y_continuous(expand = c(0, 0), 
+                     limits = c(0 ,80), 
+                     breaks = scales::pretty_breaks(n = 5)) +
+  #geom_boxplot(width=0.1, fill="white")+
+  #stat_compare_means(comparisons = my_comparisons) + 
+  geom_pwc(
+    aes(group = POI), tip.length = 0,
+    method = "wilcox.test", label = "{p.adj.format}{p.adj.signif}",
+    # p.adjust.method = "bonferroni", p.adjust.by = "panel",
+    bracket.nudge.y = 0.08) 
+  
+fig_B <- MSD_ggplot_list[["DiffCoef"]]+ 
+  scale_fill_brewer(palette="Dark2") + theme_classic()+
+  geom_violin(trim=F, kernel ="gaussian", adjust=1) +
+  geom_boxplot(width=0.1, aes(fill=POI))+
+  #stat_compare_means(comparisons = my_comparisons) + 
+  geom_pwc(
+    aes(group = POI), tip.length = 0,
+    method = "wilcox.test", label = "{p.adj.format}{p.adj.signif}",
+    # p.adjust.method = "bonferroni", p.adjust.by = "panel",
+    bracket.nudge.y = 0.1) +
+  scale_y_continuous(labels = scales::unit_format(unit = "", scale = 1e12), 
+                     expand = c(0, 0), 
+                     limits = c(-0.4e-14 ,0.5e-13), 
+                     breaks = scales::pretty_breaks(n = 5)) 
+
+fig_C <- MSD_ggplot_list[["MSS_slope"]] + 
+  scale_fill_brewer(palette="Dark2") + theme_classic()+
+  geom_violin(trim=F, kernel ="gaussian", adjust=0.5) +
+  #geom_boxplot(width=0.1, fill="white")+
+  #stat_compare_means(comparisons = my_comparisons) + 
+  geom_hline(yintercept=0.5, linetype="dashed", color = "red")+
+  geom_pwc(
+    aes(group = POI), tip.length = 0,
+    method = "wilcox.test", label = "{p.adj.format}{p.adj.signif}",
+    # p.adjust.method = "bonferroni", p.adjust.by = "panel",
+    bracket.nudge.y = 0.08) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1)), 
+                     limits = c(-2 ,1.5), 
+                     breaks = scales::pretty_breaks(n = 8))
+
+fig_D <- MSD_ggplot_list[["AvgDist"]]+ 
+  scale_fill_brewer(palette="Dark2") + theme_classic()+
+  geom_violin(trim=F, kernel ="gaussian", adjust=0.5) +
+  scale_y_continuous(labels = scales::unit_format(unit = "", scale = 1e6), 
+                     expand = c(0, 0), 
+                     limits = c(0 ,0.6e-6), 
+                     breaks = scales::pretty_breaks(n = 8)) +
+ geom_boxplot(width=0.1, aes(fill=POI))+
+  #stat_compare_means(comparisons = my_comparisons) + 
+  geom_pwc(
+    aes(group = POI), tip.length = 0,
+    method = "wilcox.test", label = "{p.adj.format}{p.adj.signif}",
+    # p.adjust.method = "bonferroni", p.adjust.by = "panel",
+    bracket.nudge.y = 0.12)
+```
+
+```{r}
+ggsave(
+  "Myl_Arp3_DiffCoef.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+ggpubr::ggarrange(fig_A,fig_B,fig_C, fig_D,
+                  labels = LETTERS[1:4],
+                  ncol = 2, nrow = 2,  legend="none")
+ 
+```
+
+```{r}
+ggsave(
+  "Myl_dyn_2.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+```{r,  message = FALSE, warning=FALSE, fig.width=6}
+MSD_ggplot_list[["MSS_slope"]] + 
+  scale_fill_brewer(palette="Dark2") + theme_classic()+
+  geom_violin(trim=F, kernel ="gaussian", adjust=0.5) +
+  #geom_boxplot(width=0.1, fill="white")+
+  #stat_compare_means(comparisons = my_comparisons) + 
+  geom_hline(yintercept=0.5, linetype="dashed", color = "red")+
+  geom_pwc(
+    aes(group = POI), tip.length = 0,
+    method = "wilcox.test", label = "{p.adj.format}{p.adj.signif}",
+    # p.adjust.method = "bonferroni", p.adjust.by = "panel",
+    bracket.nudge.y = 0.08) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1)), limits = c(-2 ,1.5), breaks = scales::pretty_breaks(n = 8))
+```
+
+```{r, message=FALSE, warning=FALSE}
+dir  <- dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(dir)
+saved_path <- paste(dir, "Patch_dynamic.RData",  sep = "/")
+#load(file=saved_path)
+
+save.image(file=saved_path)
+```
+
+```{r,  message = FALSE, warning=FALSE, fig.width=10}
+fig_A<- fviz_pca_var (res.pca, 
+             col.var="contrib", # Control variable colors using their contributions
+             axes = 1:2, 
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE)
+
+fig_B<- fviz_pca_ind(res.pca, col.ind = "cos2", # Control automatically the color of individuals using the cos2. cos2 = the quality of the individuals on the factor map
+            # gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             palette="npg",
+            label="none",
+            axes = c(1, 2),
+             habillage = "Type", # Use gradient color
+             repel = TRUE)
+
+fig_C<- fviz_pca_ind(res.pca, col.ind = "cos2", # Control automatically the color of individuals using the cos2. cos2 = the quality of the individuals on the factor map
+            # gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             palette="npg",
+            label="none",
+            axes = c(1, 2),
+             habillage = "Type", # Use gradient color
+             repel = TRUE)
+
+ggpubr::ggarrange(fig_A, fig_B, fig_C,
+                  labels = c("A", "B", "C"), ncol = 3, nrow = 1, align="hv", legend="none")
+```
+
+```{r, warning = FALSE, message = FALSE}
+
+targetDT<- MSD [, c(3:14)]
+
+library(umap)
+set.seed(12345)  
+
+DT_sample_merge_imp.umap <- umap(targetDT, method="umap-learn", n_components= 5, n_neighbors=50)
+
+library(Rtsne)
+library(tsne)
+
+set.seed(1234) 
+DT_sample_merge_imp.tsne <- as.matrix(targetDT) %>% Rtsne(perplexity=50, dims=3, initial_dims=10, check_duplicates = FALSE) # Run TSNE
+```
+
+```{r}
+layout <- DT_sample_merge_imp.umap$layout # DT_sample_merge_imp.umap$layout or DT_sample_merge_imp.tsne$Y
+colnames(layout) <- paste0("UMAP_", 1:dim(layout)[2])
+
+layout <- DT_sample_merge_imp.tsne$Y
+colnames(layout) <- paste0("tSNE_", 1:dim(layout)[2])
+```
+
+```{r analysis3, message = FALSE, warning=FALSE, fig.width=10}
+ggplot(as.data.frame(layout), aes_string(x=colnames(layout)[1], y=colnames(layout)[2])) +  
+  geom_point(aes(size=MSD$MSS_slope, colour = MSD$DiffCoef))  + 
+  scale_color_gradient2(low = "blue", mid="white", high = "red", midpoint=0) +
+  labs(x=colnames(layout)[1], y= colnames(layout)[2], color="DiffCoef", size="MSS_slope")+ 
+  geom_rug(alpha=.5)
+
+sp <- ggplot(as.data.frame(layout), aes_string(x=colnames(layout)[1], y=colnames(layout)[2])) +  
+  geom_point(aes(size=MSD$DiffCoef, colour = MSD$Type))  + 
+  labs(x=colnames(layout)[1], y= colnames(layout)[2], color="Type", size="MSS_slope")+ 
+  geom_rug(col="darkred",alpha=.5)
+
+ggMarginal(sp, groupColour = TRUE, groupFill = TRUE)
+```
+
+```{r}
+# rename dataframe names within the dataframe list 
+
+subfolder_name_list <- list.files(path =Path_1, full.names = F, recursive = FALSE)
+
+names(df_1)[2:(length(df_list)+1)] <- subfolder_name_list[ grepl("R3D", subfolder_name_list) ]
+```
+
+```{r}
+Path_1= "G:/EB3"
+Rdata_list<- list.files(Path_1,
+                      pattern = "df_list",
+                     recursive = TRUE,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+```
+
+```{r}
+df_1 <- t(df_1) %>% as.data.frame()
+col<-df_1[1, ]
+colnames(df_1) <- col
+df_1<-df_1[-1, ]
+
+df_1[]<- lapply(df_1, as.numeric)
+
+df_1$X1<- rownames(df_1)
+df_1$Arp3<-"WT"
+df_1$Path<- dirname(Path_1)
+
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save(df_list, df_1, csv_list, Path_1, file = saved_path)
+
+```
+
+```{r}
+data_summary <- function(x) {
+   m <- mean(x)
+   ymin <- m-sd(x)
+   ymax <- m+sd(x)
+   return(c(y=m,ymin=ymin,ymax=ymax))
+}
+
+graph_list<- list()
+
+graph_list[[1]]<- ggplot(df_1, aes(x= Arp3, y=growth_speed_median)) 
+graph_list[[2]]<- ggplot(df_1, aes(x=Arp3, y=growth_lifetime_mean)) 
+graph_list[[3]]<- ggplot(df_1, aes(x= Arp3, y=growth_length_mean))
+```
+
+```{r}
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save(df_list, df_1, csv_list, Path_1, graph_list, file = saved_path)
+csvPath<- paste(Path_1, "df_1.csv",  sep = "/")
+write.csv(df_1[ ,c(4,7,10)], file=csvPath)
+```
+
+```{r, fig.width=2, fig.height=4, echo=FALSE}
+graph_list[[1]] + 
+  geom_violin(trim=FALSE, bw=1)+ 
+stat_summary(fun.data=data_summary)+ 
+  geom_dotplot(binaxis='y', stackdir='center', dotsize=1, binwidth = 0.2)
+
+graph_list[[1]]+
+  geom_violin(trim=FALSE, fill='#A4A4A4', color="darkred", bw=1)+
+  geom_boxplot(width=0.5) + theme_minimal()
+```

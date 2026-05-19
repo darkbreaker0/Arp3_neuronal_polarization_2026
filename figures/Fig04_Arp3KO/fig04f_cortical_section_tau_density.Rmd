@@ -1,0 +1,112 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+## Package installation
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+library(gdata)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+load(file=saved_path)
+
+```
+
+
+
+```{r message=FALSE, warning=FALSE}
+Tau_int <- Tau_int %>% as.data.frame()
+
+
+summary_1 <-Tau_int %>% group_by(Sec_no) %>% rstatix::get_summary_stats(Mean)
+summary_1 <- summary_1[ ,c(1,11)]
+
+write.csv(summary_1, "summary.csv")
+```
+
+
+```{r message=FALSE, warning=FALSE}
+df2 <- Ch3 %>% as.data.frame()
+
+df2$distance <- (0:(nrow(df1)-1))*0.0425013
+
+stacked <- df2 %>% gather(Roi, int, -distance) %>% as.data.table()  
+
+df_summary3 <-stacked %>% group_by(distance) %>% rstatix::get_summary_stats(int)
+```
+
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+ggplot(df_summary2, aes(x=distance, y=mean)) +
+  
+   geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="lightgrey")+
+   geom_line(size=1, alpha=1) +
+  
+  #stat_peaks(colour = "red", span = 21, ignore_threshold = 0.8) +
+  #stat_peaks(geom = "text", colour = "red", span = 21, ignore_threshold = 0.8, hjust = 2, angle = 0) +
+  #stat_valleys(colour = "lightblue", span = 21, ignore_threshold = 1) +
+  #stat_valleys(geom = "text", colour = "blue", span = 21, ignore_threshold = 1, hjust = -0.5, angle = 0) +
+  
+  
+  scale_y_continuous( breaks = scales::pretty_breaks(n = 6))+
+  scale_x_continuous(expand = c(0, 0),  breaks = scales::pretty_breaks(n = 8), limits = c(0, 15)) +
+  
+  theme_ipsum(grid = F, ticks = T)+ 
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+
+
+```{r}
+ggsave(
+  "Actin_profile.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+
+```

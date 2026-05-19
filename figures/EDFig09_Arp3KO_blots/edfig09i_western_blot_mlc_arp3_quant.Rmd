@@ -1,0 +1,190 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+```{r message=FALSE}
+library(pracma)
+#library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(ggpubr)
+library(superheat)
+library(fs)
+```
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+load(file=saved_path)
+
+```
+
+
+```{r message=FALSE}
+Wb_df_long <- WB_df %>% pivot_longer(cols = c("MLC", "pMLC", "Arp3", "GAPDH"), values_to = "Int", names_to = "Protein") %>% na.omit()
+Wb_df_long$sample_ID <- paste (Wb_df_long$Exp, Wb_df_long$Sample, sep = "_")
+Wb_df_long$film <-  paste (Wb_df_long$Wb_run, Wb_df_long$Exposure, sep = "_")
+Wb_df_long$run_sample <-  paste (Wb_df_long$Wb_run, Wb_df_long$sample_ID, sep = "_")
+```
+
+
+```{r message=FALSE}
+
+# get the minimal value of each film group
+Wb_df_long <- Wb_df_long %>% as.data.table()
+
+GAPDH_df <- Wb_df_long[Protein=="GAPDH"] %>% 
+transform(Min_Int = ave(Int, film, FUN = min))
+
+Arp3_df <- Wb_df_long[Protein=="Arp3"] %>% 
+transform(Min_Int = ave(Int, film, FUN = min))
+
+MLC_df <- Wb_df_long[Protein=="MLC"] %>% 
+transform(Min_Int = ave(Int, film, FUN = min))
+
+pMLC_df <- Wb_df_long[Protein=="pMLC"] %>% 
+transform(Min_Int = ave(Int, film, FUN = min))
+
+# normalization with the minimal value of each film group
+GAPDH_df$Int_norm1 <- GAPDH_df$Int/GAPDH_df$Min_Int
+Arp3_df$Int_norm1 <- Arp3_df$Int/Arp3_df$Min_Int
+MLC_df$Int_norm1 <- MLC_df$Int/MLC_df$Min_Int
+pMLC_df$Int_norm1 <- pMLC_df$Int/pMLC_df$Min_Int
+```
+
+```{r message=FALSE}
+# average value of the sample over different films (exposure times) in each run (tech duplication)
+GAPDH_df2 <- GAPDH_df %>% group_by(run_sample, WT_KO, Protein, Exp, Wb_run, sample_ID) %>% rstatix::get_summary_stats(Int_norm1)
+Arp3_df2 <- Arp3_df  %>% group_by(run_sample, WT_KO, Protein, Exp, Wb_run, sample_ID) %>% rstatix::get_summary_stats(Int_norm1)
+MLC_df2<- MLC_df %>% group_by(run_sample, WT_KO, Protein, Exp, Wb_run, sample_ID) %>% rstatix::get_summary_stats(Int_norm1)
+pMLC_df2<- pMLC_df %>% group_by(run_sample, WT_KO, Protein, Exp, Wb_run, sample_ID) %>% rstatix::get_summary_stats(Int_norm1)
+```
+
+
+```{r}
+Wb_df_long_2 <- rbind (GAPDH_df2, Arp3_df2 , MLC_df2 , pMLC_df2) 
+
+#Wb_df_long_2$uni_ID <- paste(Wb_df_long_2$sample_ID, Wb_df_long_2$film, sep = "_")
+
+Wb_df_wide_2 <- Wb_df_long_2 %>% pivot_wider(id_cols = c("Exp", "Wb_run", "WT_KO", "sample_ID"), names_from = "Protein", values_from = "median")
+
+# normalization with normalized GAPDH
+Wb_df_wide_2$Arp3 <- Wb_df_wide_2$Arp3/Wb_df_wide_2$GAPDH
+Wb_df_wide_2$MLC <- Wb_df_wide_2$MLC/Wb_df_wide_2$GAPDH
+Wb_df_wide_2$pMLC <- Wb_df_wide_2$pMLC/Wb_df_wide_2$GAPDH
+
+# average value of the sample over different WB runs (tech duplication)
+Arp3_df3 <- Wb_df_wide_2 %>% group_by(sample_ID, WT_KO, Exp) %>% rstatix::get_summary_stats(Arp3)
+MLC_df3 <- Wb_df_wide_2 %>% group_by(sample_ID, WT_KO, Exp) %>% rstatix::get_summary_stats(MLC)
+pMLC_df3 <- Wb_df_wide_2 %>% group_by(sample_ID, WT_KO, Exp) %>% rstatix::get_summary_stats(pMLC)
+```
+
+
+```{r, fig.width=6, echo=FALSE}
+
+my_comparisons <- list(c("WT", "KO"),c("WT", "Het"), c("Het", "KO"))
+
+Arp3_df3  %>% mutate(WT_KO = factor(WT_KO, levels=c("WT", "KO", "Het"))) %>%
+ggplot( aes(x=WT_KO, y=median, fill =WT_KO) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+# geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, fill="white", outlier.colour = NA)+ 
+  geom_jitter(aes(), shape=16, position=position_jitter(0.1))+
+ scale_y_continuous(expand = c(0, 0), limits = c(-50, 1500), breaks = scales::pretty_breaks(n = 5))+ 
+ stat_compare_means(comparisons = my_comparisons, method="wilcox.test")+
+    theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+```
+```{r}
+ggsave(
+  "Arp3.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r, fig.width=6, echo=FALSE}
+MLC_df3  %>% mutate(WT_KO = factor(WT_KO, levels=c("WT", "KO", "Het"))) %>%
+ggplot( aes(x=WT_KO, y=median, fill =WT_KO) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+# geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, fill="white", outlier.colour = NA)+ 
+   geom_jitter(aes(), shape=16, position=position_jitter(0.1))+
+ scale_y_continuous(expand = c(0, 0), limits = c(-5, 50), breaks = scales::pretty_breaks(n = 5))+ 
+ stat_compare_means(comparisons = my_comparisons, method="wilcox.test")+
+    theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+```
+```{r}
+ggsave(
+  "MLC.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r, fig.width=6, echo=FALSE}
+pMLC_df3  %>%  mutate(WT_KO = factor(WT_KO, levels=c("WT", "KO", "Het"))) %>%
+ggplot( aes(x=WT_KO, y=median, fill =WT_KO) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+# geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, fill="white")+ 
+   geom_jitter(aes(), shape=16, position=position_jitter(0.1))+
+ scale_y_continuous(expand = c(0, 0), limits = c(-5, 20), breaks = scales::pretty_breaks(n = 5))+ 
+ stat_compare_means(comparisons = my_comparisons, method="wilcox.test")+
+    theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+```
+```{r}
+ggsave(
+  "pMLC.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+
+saveRDS(df_1, file = "GC_coloc.rds")
+```

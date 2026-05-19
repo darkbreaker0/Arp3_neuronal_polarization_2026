@@ -1,0 +1,315 @@
+---
+title: "Canonical template: Fig 3n + ED Fig 5b PA-Rac1 precursor (Pre/Act/Post)"
+output: html_notebook
+---
+
+<!--
+================================================================================
+  CANONICAL TEMPLATE - DO NOT RENDER DIRECTLY
+================================================================================
+  This Rmd is INCLUDED by 3 thin wrappers in `figures/Fig03_Arp3/`:
+
+    fig03n_parac1_arp3ko_pre_act_post_precursor.Rmd  (Arp3 KO condition)
+    fig03n_parac1_c450m_pre_act_post_precursor.Rmd   (C450M variant)
+    fig03n_parac1_t17n_pre_act_post_precursor.Rmd    (T17N variant)
+
+  Together they feed the downstream consolidator
+  `figures/Fig03_Arp3/fig03n_parac1_gc_soma_length.Rmd`, which builds the
+  multi-condition Kruskal-Wallis + Dunn comparison for Fig 3n and ED Fig 5b.
+
+  -------- INPUT CONTRACT --------
+  The wrapper MUST prepare two data frames BEFORE including this template:
+
+  * `length_input`  - long-format per-ROI per-frame length data, with columns
+                      at minimum: `roi`, `Image`, `Site`, `exp`, `Series`
+                      (Pre/Act/Post), `Length` (length value).
+                      Wrapper-specific: KO/C450M build this by reading
+                      per-cell `*_length*.csv` files recursively from
+                      sub-folders; T17N has it pre-loaded in its RData.
+
+  * `actin_input`   - long-format per-ROI per-frame actin-intensity data
+                      with at minimum: `roi`, `Image`, `Site`, `exp`,
+                      `Series` (Pre/Act/Post), `Mean` (intensity value).
+                      Wrapper-specific: KO concatenates `actin_quant` +
+                      `actin_quant_2` from RData (N=48); C450M concatenates
+                      `Actin_int_C405M` + `_LSM980` (N=22); T17N uses the
+                      same `neurite_length` table that fed `length_input`.
+
+  -------- PARAMETERS expected --------
+    params$variant         "KO" | "C450M" | "T17N"
+                           Drives the RDS output filenames:
+                             <variant>_actin_int.rds   (line ~saveRDS)
+                             <variant>_length.rds
+                           Also appears in the panel title.
+
+    params$pdf_name        e.g. "KO_length.eps" / "C405_length.eps" /
+                           "T17N_length.eps". The final length panel's
+                           ggsave filename. (Legacy filenames retained
+                           for byte-equivalent reproduction.)
+
+    params$length_y_limit  Numeric length-2 vector for the y-axis of the
+                           final length plot.
+                             KO    -> c(-30, 30)
+                             C450M -> c(-40, 30)
+                             T17N  -> c(-20, 30)
+
+================================================================================
+  PANEL TARGETS (Lin et al., Nature 2026)
+================================================================================
+  Fig 3n:  "Length difference induced by activation of PA-Rac1 and variants."
+           Kruskal-Wallis + Dunn's, Bonferroni-adjusted, across:
+              - PA-Rac1 / WT neurons / GC (N=31 events)
+              - PA-Rac1 / WT neurons / soma (N=22)
+              - PA-Rac1_T17N / WT (N=20)         <- THIS TEMPLATE (T17N wrapper)
+              - PA-Rac1_C450M / WT (N=57)        <- THIS TEMPLATE (C450M wrapper)
+              - PA-Rac1 / Arp3 KO (N=40)         <- THIS TEMPLATE (KO wrapper)
+
+  ED Fig 5b: same conditions but actin-intensity-difference instead of length.
+
+================================================================================
+  REPO STATUS
+================================================================================
+  Extracted: 2026-05-12 from 3 wrapper Rmds (deduplicated ~150 lines of
+             near-identical pivot/save/plot code). Wrappers keep their
+             variant-specific data-loading code; this template handles
+             the common downstream pipeline.
+  Essentiality: Template (canonical parameterized analysis).
+================================================================================
+-->
+
+
+## Step 0: Resolve parameters from the calling wrapper
+
+This chunk **defends the contract**. When R Markdown processes a child include,
+the child sees the parent wrapper's global environment — including the `params`
+object built from the wrapper's YAML header, and any data frames the wrapper
+constructed. We check that all required pieces are present and bail out
+loudly if not (the `stop()` calls produce a clear error instead of a cryptic
+"object not found" later in the pipeline).
+
+After validation we copy `params$...` values into short local names so the
+rest of the template stays readable. The two output filenames are built by
+concatenating the genotype variant string with a constant suffix — for
+example `params$variant = "KO"` -> `rds_actin = "KO_actin_int.rds"`.
+
+```{r template_parac1_resolve_params, message=FALSE, warning=FALSE, echo=FALSE}
+# ---- Validate that the wrapper supplied everything we need ----
+# `params` is the R Markdown YAML-driven parameter object. If somebody opens
+# this Rmd directly (instead of via a wrapper that includes it), it will be
+# NULL or missing; we stop with a clear message pointing at the wrappers.
+if (!exists("params") || is.null(params)) {
+  stop("This Rmd is a canonical template; render via a wrapper that supplies `params` ",
+       "(see figures/Fig03_Arp3/fig03n_parac1_*_pre_act_post_precursor.Rmd).")
+}
+# `length_input` and `actin_input` are the per-variant data frames that each
+# wrapper builds BEFORE including this template (see the INPUT CONTRACT in
+# the template header). They are not optional.
+if (!exists("length_input")) {
+  stop("Template expects `length_input` data.frame built by the wrapper. ",
+       "See the INPUT CONTRACT section in this template's header.")
+}
+if (!exists("actin_input")) {
+  stop("Template expects `actin_input` data.frame built by the wrapper. ",
+       "See the INPUT CONTRACT section in this template's header.")
+}
+
+# ---- Pull parameter values into short local names for readability ----
+variant       <- params$variant         # "KO" / "C450M" / "T17N" — genotype/variant label
+pdf_name      <- params$pdf_name        # final EPS filename for the length panel
+length_y_lim  <- params$length_y_limit  # 2-element numeric, e.g. c(-30, 30)
+
+# ---- Build per-condition output filenames ----
+# `paste0()` glues strings end-to-end with no separator. So if
+# variant == "KO", rds_actin becomes "KO_actin_int.rds". The downstream
+# consolidator (fig03n_parac1_gc_soma_length.Rmd) reads exactly these names.
+rds_actin     <- paste0(variant, "_actin_int.rds")
+rds_length    <- paste0(variant, "_length.rds")
+```
+
+
+## Step 1: Pivot length to wide form, mean-center each ROI's Pre/Act/Post triplet
+
+The input `length_input` is in "long form" — one row per (ROI, time-point),
+where time-point is Pre / Act / Post.  To do per-ROI mean-centering we first
+need to "pivot wider" so each ROI is ONE row with three columns Pre, Act,
+Post side by side.  Then we subtract the per-ROI 3-frame mean from each
+value so the **relative change** stands out (rather than the absolute
+length, which varies between cells). Finally we pivot back to long form for
+plotting.
+
+**Why mean-center?** Each cell has its own baseline length; without
+centering, plot variance is dominated by between-cell differences in
+absolute length, not by the Pre → Act → Post **change**.
+
+**Why bother with Diff?** It's stored as an extra column but not used
+downstream — kept for visual sanity checks.
+
+```{r template_parac1_length_pivot}
+# tidyr::pivot_wider: long-form -> wide-form. After this, length_wide has one
+# row per (roi, Image, Site, exp) and 3 numeric columns named Pre, Act, Post.
+length_wide <- length_input %>%
+  pivot_wider(id_cols = c("roi", "Image", "Site", "exp"),
+              names_from  = "Series",   # column whose values become new col-names
+              values_from = "Length")   # column whose values fill the new cells
+
+# Helper columns for downstream QC.
+length_wide$Diff <- length_wide$Act - length_wide$Pre                       # raw Act-Pre delta
+length_wide$mean <- rowMeans(length_wide[, c("Pre", "Act", "Post")])        # per-ROI 3-frame mean
+
+# Mean-center: subtract the per-ROI mean from each of the 3 time-points so
+# each ROI is now expressed as a fluctuation around its own baseline.
+length_wide$Pre  <- length_wide$Pre  - length_wide$mean
+length_wide$Act  <- length_wide$Act  - length_wide$mean
+length_wide$Post <- length_wide$Post - length_wide$mean
+
+# tidyr::pivot_longer reverses pivot_wider: 3 columns -> 3 rows per ROI, with
+# a new `Series` column holding the original column-name (Pre/Act/Post). Long
+# form is what ggplot likes.
+length_long <- pivot_longer(length_wide,
+                            cols = c("Pre", "Act", "Post"),
+                            names_to  = "Series",
+                            values_to = "Length")
+
+# Force the factor levels to the order they appear so the x-axis of the plot
+# is "Pre, Act, Post" (not alphabetical "Act, Post, Pre").
+length_long$Series <- factor(length_long$Series,
+                             levels = unique(length_long$Series))
+```
+
+
+## Step 2: Pivot actin-intensity to wide form + mean-center
+
+Identical pipeline to Step 1, but applied to the **actin intensity** values
+in `actin_input$Mean` instead of `length_input$Length`. (The Bradke-lab
+ImageJ macro exports per-ROI mean fluorescence intensity in a column named
+`Mean`.)  The output table is called `actin_long` and the value column is
+renamed to `Int` for clarity downstream.
+
+```{r template_parac1_actin_pivot}
+# Same pattern as length pivot but pulling values from the `Mean` column.
+actin_wide <- actin_input %>%
+  pivot_wider(id_cols = c("roi", "Image", "Site", "exp"),
+              names_from  = "Series",
+              values_from = "Mean")            # actin intensity column
+
+# Helper + per-ROI 3-frame mean
+actin_wide$Diff <- actin_wide$Act - actin_wide$Pre
+actin_wide$mean <- rowMeans(actin_wide[, c("Pre", "Act", "Post")])
+
+# Mean-center each ROI around its own 3-frame mean
+actin_wide$Pre  <- actin_wide$Pre  - actin_wide$mean
+actin_wide$Act  <- actin_wide$Act  - actin_wide$mean
+actin_wide$Post <- actin_wide$Post - actin_wide$mean
+
+# Back to long form for downstream save/plot. Note `values_to = "Int"` —
+# the consolidator downstream expects this column to be named "Int".
+actin_long <- pivot_longer(actin_wide,
+                           cols = c("Pre", "Act", "Post"),
+                           names_to  = "Series",
+                           values_to = "Int")
+actin_long$Series <- factor(actin_long$Series,
+                            levels = unique(actin_long$Series))
+```
+
+
+## Step 3: Save the two per-condition .rds files for the downstream consolidator
+
+`saveRDS()` writes a single R object to disk in R's native binary format —
+faster to read back and preserves R types (factor levels, data.table class)
+better than CSV. The filenames are wrapper-specific (built in Step 0 from
+`params$variant`); the consolidator `fig03n_parac1_gc_soma_length.Rmd`
+reads them with matching `readRDS()` calls.
+
+**Why RDS and not CSV here?** The downstream consolidator needs the
+**factor-level ordering** on `Series` (Pre/Act/Post) preserved exactly. CSV
+would lose the factor and force re-ordering. RDS preserves R types.
+
+```{r template_parac1_save_rds}
+saveRDS(actin_long,  file = rds_actin)    # e.g. KO_actin_int.rds, C450M_actin_int.rds, T17N_actin_int.rds
+saveRDS(length_long, file = rds_length)   # e.g. KO_length.rds,    C450M_length.rds,    T17N_length.rds
+```
+
+
+## Step 4: Plot length Pre vs Act with paired Wilcoxon, then save as .eps
+
+This is the visualisation panel. It shows the **paired distribution shift**
+between the Pre and Act time-points (the Post time-point is dropped for this
+plot — see `subset(length_long$Series != "Post")`).
+
+Reading the layered ggplot from top to bottom:
+1. `geom_violin` draws the smoothed density of the per-ROI length values
+   at each of Pre and Act (after the Step-1 mean-centering).
+2. `geom_point` overlays one dot per ROI per time-point.
+3. `geom_line` connects each ROI's Pre dot to its own Act dot, so the
+   reader can see **per-cell paired changes** (which is what the test below
+   actually evaluates).
+4. `stat_compare_means(paired = TRUE, method = "wilcox.test")` runs the
+   paired Wilcoxon signed-rank test on the Pre-vs-Act pair and annotates the
+   plot with the p-value.
+
+**Why paired Wilcoxon and not paired t-test?** N is small (20-48 events
+per variant), the distributions can be skewed by outliers, and the
+non-parametric Wilcoxon makes weaker distributional assumptions.
+
+The Post-Pre comparison (recovery) is computed downstream in the
+consolidator; this template only saves the within-event Pre-vs-Act plot.
+
+```{r template_parac1_length_plot, message=FALSE, warning=FALSE}
+library(ggpubr)   # supplies stat_compare_means + ggsignif-style annotations
+
+# We only compare Pre vs Act here. To plot more pairs (e.g. Act-vs-Post) add
+# them to this list.
+my_comparisons <- list(c("Pre", "Act"))
+
+length_long %>% subset(length_long$Series != "Post") %>%   # drop Post for this plot
+  ggplot(aes(x = Series, y = Length, fill = Series)) +
+
+  # ---- distribution shape ----
+  # trim=FALSE lets violin extend beyond data range (smoother visual)
+  # kernel="gaussian"+adjust=1.6 -> moderately smoothed density
+  geom_violin(trim = FALSE, kernel = "gaussian", adjust = 1.6) +
+
+  # ---- individual ROI points (paired by ROI) ----
+  # position_dodge keeps Pre and Act points slightly offset on the x axis
+  geom_point(aes(fill = Series, group = roi),
+             position = position_dodge(0.2)) +
+
+  # ---- per-ROI Pre->Act connecting lines ----
+  # group=roi tells ggplot to draw one line per ROI (instead of one line for
+  # everything). Visually communicates the paired structure.
+  geom_line(aes(group = roi), position = position_dodge(0.2)) +
+
+  # ---- statistical comparison + p-value annotation ----
+  # paired=TRUE is the key argument: each ROI's Pre value is matched to its
+  # OWN Act value. method="wilcox.test" -> paired Wilcoxon signed-rank.
+  stat_compare_means(comparisons = my_comparisons, paired = TRUE,
+                     method = "wilcox.test") +
+
+  # ---- axis scaling ----
+  # length_y_lim is wrapper-supplied (e.g. c(-30, 30)); expand=c(0,0) removes
+  # the default extra padding ggplot adds beyond the limits.
+  scale_y_continuous(expand = c(0, 0),
+                     limits = length_y_lim,
+                     breaks = scales::pretty_breaks(n = 8)) +
+
+  # ---- aesthetic theming ----
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw() +
+  theme(plot.title       = element_text(hjust = 0.5),
+        plot.margin      = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position  = "right",
+        axis.text        = element_text(size = 12, face = "bold"))
+```
+
+Save the just-drawn plot as a vector EPS file. `plot = last_plot()` captures
+the most recent ggplot in the current R session. The filename comes from
+`params$pdf_name` (e.g. `KO_length.eps`).
+
+```{r template_parac1_save_pdf}
+ggsave(
+  pdf_name,
+  plot = last_plot(),
+  device = "eps")
+```

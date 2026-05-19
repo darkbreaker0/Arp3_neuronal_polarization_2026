@@ -1,0 +1,202 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+```{r message=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(ggpubr)
+library(superheat)
+library(fs)
+```
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+load(file=saved_path)
+
+```
+
+```{r message=FALSE}
+csv_list<- list.files(Path_1,
+                      pattern = "(C1C2.*)csv$",
+                     recursive = TRUE,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = T)  #get the full name (path and file name) of each file
+
+df_list<- list()
+
+for (n in 1:length(csv_list)) 
+{
+  df_list[[n]] <- readr::read_delim(csv_list[n], ",", escape_double = FALSE, col_names = T, trim_ws = TRUE)
+  df_list[[n]] <- df_list[[n]] %>% as.data.frame()
+ 
+}
+
+names(df_list)<- csv_list
+
+df_list_GC <- df_list[grep('GC', names(df_list))]
+df_list_NT <- df_list[grep('NT', names(df_list))]
+df_list_SM <- df_list[grep('soma', names(df_list))]
+
+```
+
+
+```{r message=FALSE}
+
+df_NT <- df_list_NT %>% reduce(bind_rows)  %>% as.data.frame() 
+df_NT$file<- selected_list %>% names() %>% path_file()
+df_NT$img<-selected_list %>% names() %>% path_file() %>% gsub("\\_filtered_masked.tif_C1C2.*","", .)
+names(df_NT)[2:3] <- c("TOS_linear", "TOS_log2")
+df_NT$region<- "NT"
+
+df_GC <- df_list_GC %>% reduce(bind_rows)  %>% as.data.frame() 
+df_GC$file<- selected_list %>% names() %>% path_file()
+df_GC$img<-selected_list %>% names() %>% path_file() %>% gsub("\\_filtered_masked.tif_C1C2.*","", .)
+names(df_GC)[2:3] <- c("TOS_linear", "TOS_log2")
+df_GC$region<- "GC"
+
+df_SM <- df_list_SM %>% reduce(bind_rows)  %>% as.data.frame() 
+df_SM$file<- selected_list %>% names() %>% path_file()
+df_SM$img<-selected_list %>% names() %>% path_file() %>% gsub("\\_filtered_masked.tif_C1C2.*","", .)
+names(df_SM)[2:3] <- c("TOS_linear", "TOS_log2")
+df_SM$region<- "SM"
+
+df_1 <- rbind(df_NT, df_GC, df_SM)
+saveRDS(df_1, file="Actin_Rab11a_Coloc.rds")
+```
+
+# import F-actin-Myl and F-actin_Arp3 coloc data and combine with F-actin-Rab11 coloc data
+```{r}
+
+df_GC_Myl<- readRDS("GC_coloc.rds")
+df_GC_Myl$region <- "GC"
+
+df_GC$pair<- "Actin_Rab11"
+df_GC_compare<- rbind(df_GC, df_GC_Myl)
+
+df_soma_Myl<- readRDS("soma_coloc.rds")
+df_soma_Myl$region <- "SM"
+
+df_SM$pair<- "Actin_Rab11"
+df_SM_compare<- rbind(df_SM, df_soma_Myl)
+
+table(df_GC_compare$pair)
+```
+
+```{r}
+my_comparisons <- list(c("Arp3_actin", "Actin_Rab11"),c("Arp3_actin", "MLC_actin"), c("Actin_Rab11", "MLC_actin"))
+
+df_SM_compare %>% ggplot(aes(x= pair, y=PCC, fill=pair)) +  
+  geom_violin(trim=T,  bw=1, kernel ="gaussian", adjust=0.05)+
+  
+  #geom_point(aes(fill=pair), position = position_dodge(0.5))+
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  #geom_dotplot(binaxis='y', stackdir='center', dotsize=1, binwidth = 0.1)+ 
+   geom_boxplot(width=0.1, fill="white")+ 
+   scale_y_continuous(expand = c(0, 0), limits = c(-1 ,2), breaks = scales::pretty_breaks(n = 5)) + 
+  
+  #stat_summary(fun.data=data_summary)+ 
+ stat_compare_means(comparisons = my_comparisons, method="wilcox.test")+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+```
+
+
+
+```{r message=FALSE}
+df_2 <- df_1 %>%  subset(df_1$M1 < 0.99)
+```
+
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+
+```
+
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+
+df_summary <- df_1 %>% group_by(region) %>% rstatix::get_summary_stats()
+```
+
+
+```{r}
+
+graph_list<- list()
+
+graph_list[[1]]<- ggplot(df_1, aes(x= region, y=PCC, fill=region)) 
+graph_list[[2]]<- ggplot(df_1, aes(x=region, y=SRCC, fill=region)) 
+graph_list[[3]]<- ggplot(df_1, aes(x= region, y=ICQ, fill=region))
+graph_list[[4]]<- ggplot(df_1, aes(x= region, y=M1, fill=region))
+graph_list[[5]]<- ggplot(df_1, aes(x= region, y=M2, fill=region))
+graph_list[[6]]<- ggplot(df_1, aes(x= region, y=TOS_linear, fill=region))
+graph_list[[7]]<- ggplot(df_1, aes(x= region, y=TOS_log2, fill=region))
+
+```
+
+
+```{r, fig.width=5, echo=FALSE}
+my_comparisons <- list(c("GC", "SM"),c("SM", "NT"), c("NT", "GC"))
+
+graph_list[[1]]+
+  geom_violin(trim=F,  bw=1, kernel ="gaussian", adjust=0.05)+
+  
+  #geom_point(aes(fill=pair), position = position_dodge(0.5))+
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  #geom_dotplot(binaxis='y', stackdir='center', dotsize=1, binwidth = 0.1)+ 
+   geom_boxplot(width=0.1, fill="white")+ 
+   scale_y_continuous(expand = c(0, 0), limits = c(-1 ,1.5), breaks = scales::pretty_breaks(n = 5)) + 
+  
+  #stat_summary(fun.data=data_summary)+ 
+ stat_compare_means(comparisons = my_comparisons, method="wilcox.test")+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+```
+
+
+```{r}
+ggsave(
+  "PCC_GC.eps",
+  plot = last_plot(),
+  device = "eps")
+```

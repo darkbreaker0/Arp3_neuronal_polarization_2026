@@ -1,0 +1,131 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(ggpubr)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+```
+
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "actin_RF.RData",  sep = "/")
+load(file=saved_path)
+```
+
+```{r}
+rate_240227 <- readRDS("240227.RDS")
+rate_240227$batch <- "240227" 
+rate_240227$img <- rate_240227$img %>% str_replace( "\\.dv.*", ".dv")
+rate_241023 <- readRDS("241023.RDS")
+rate_241023$batch <- "241023" 
+rate_241025 <- readRDS("241025.RDS")
+rate_241025$batch <- "241025"
+
+rate_summary <- rbind (rate_240227, rate_241023, rate_241025)
+```
+
+
+```{r}
+rate_summary_2 <- rate_summary %>%
+  group_by(img, growth) %>% 
+   rstatix::get_summary_stats(mean) %>% as.data.table()
+
+#rate_summary$ID <- paste(rate_summary$img, rate_summary$period, sep = "_")
+
+rate_summary_2 $img %>% table()
+```
+
+
+```{r}
+rate_summary <- rate_summary  %>% filter(!is.na(growth))
+
+outliers <- rate_summary %>% 
+  group_by(growth) %>% 
+ rstatix::identify_outliers(mean) 
+
+rate_summary <- rate_summary [! (ID %in% outliers$ID) ]
+```
+
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+library(plotly)
+my_comparisons <- list(c("extension", "retraction"))
+
+#my_comparisons <- S2S3_wave_count_2$group %>% unique() %>% as.character() %>% combn(2, simplify = FALSE) 
+```
+
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+pj <- position_jitter(seed = 1, width = .1, height = 0)
+
+rate_summary_2 %>% #mutate(group = factor(group, levels=c("axon_before",   "axon_after", "minor_before", "minor_after"))) %>% 
+ggplot ( aes(x=growth, y=mean, fill =growth) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, fill="white", outlier.colour = NA)+ 
+# geom_jitter(aes(), shape=16, position=pj)+
+ # geom_line(aes(group = Label))+
+  
+   geom_point(position = pj) +
+geom_path(aes(group = img),alpha = 0.5, position = pj)+
+    
+    
+#scale_y_continuous(expand = c(0, 0), limits = c(-2, 12), breaks = scales::pretty_breaks(n = 5))+ 
+# geom_signif(comparisons = my_comparisons ,test = "wilcox.test",  color="black")+
+stat_compare_means(comparisons = my_comparisons, test = "wilcox.test", paired=T)+
+    theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+```
+
+```{r}
+ggsave(
+  "actinRF_ext_ret.pdf",
+  plot = last_plot(),
+  device = "pdf")
+
+dev.off()
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "actin_RF.RData",  sep = "/")
+save.image(file=saved_path)
+```

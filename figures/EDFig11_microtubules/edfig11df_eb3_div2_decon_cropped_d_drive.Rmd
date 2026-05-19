@@ -1,0 +1,40 @@
+---
+title: "ED Fig 11d-f - EB3 length under CK-666 (DIV-2, deconvolved cropped)"
+author: "Lin et al., Nature 2026 (Bradke lab, DZNE)"
+output: html_notebook
+params:
+  div: 2
+  image_pipeline: "cropped"
+  summary_variable: "growth_lifetime_mean"
+  pdf_name: "EB3_length.eps"
+  d_drive_source: "D:\\DVElite\\CK666_LA_EB3\\240225_DIV2_EB3\\decon\\cropped\\read_stat.Rmd"
+---
+
+<!--
+================================================================================
+  Wrapper for ED Fig 11d-f, batch: DIV-2 + deconvolved + cropped ROI.
+================================================================================
+  Includes canonical template at:
+      ../../templates/edfig11df_eb3_length_under_ck666.Rmd
+
+  Parameters supplied above:
+    - div = 2                                   -> DIV-2 stage
+    - image_pipeline = "cropped"                -> str_extract uses
+                                                   "(?<=cropped/)..."
+    - summary_variable = "growth_lifetime_mean" -> per-cell EB3 metric.
+                                                   This is the ONLY wrapper
+                                                   using "lifetime_mean" instead
+                                                   of "speed_median" (legacy
+                                                   choice preserved verbatim).
+    - pdf_name = "EB3_length.eps"               -> ggsave filename
+    - d_drive_source                            -> D:\ provenance
+
+  Original 255-line monolithic wrapper extracted into a canonical template
+  on 2026-05-12. See ``templates/edfig11df_eb3_length_under_ck666.Rmd``.
+
+  Essentiality: Replicate-QC. Canonical:
+                edfig11f_eb3_tip_integrated_intensity.Rmd.
+-->
+
+```{r child = "../../templates/edfig11df_eb3_length_under_ck666.Rmd"}
+```

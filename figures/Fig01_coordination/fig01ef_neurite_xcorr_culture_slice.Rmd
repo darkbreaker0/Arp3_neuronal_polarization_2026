@@ -1,0 +1,792 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+## Input kymograph tiff files
+```{r}
+# BiocManager::install("bioimagetools")
+# BiocManager::install("EBImage")
+# devtools::install_github("BodenmillerGroup/cytomapper", build_vignettes = TRUE)
+
+library(magick)
+library("bioimagetools")
+library("EBImage")
+
+saved_img <- paste(Path_1, "kymogram_0.tif",  sep = "/")
+cell <- bioimagetools::readTIF(saved_img)
+par(pty="s")
+bioimagetools::img(cell, z=1 ,col="b")
+
+y = readImage(saved_img)
+display(y)
+```
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis)
+library(hrbrthemes)
+library(data.table)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(Path_1)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+ load(file=saved_path)
+```
+
+File sorting into folders
+```{r}
+file_list <- list.files(path =Path_1, full.names = TRUE, recursive = TRUE)
+# subfolder_list<- subfolder_list [ grepl("Kymo_", subfolder_list) ]
+
+  library(filesstrings)
+for (n in 11:13)  {
+ 
+   x <- paste("Cell_", n,  sep = "")
+  dir.create(x)
+  path<- paste(Path_1, "/", x, sep = "")
+ file_tif <- file_list[grep(n,  file_list), drop = FALSE]
+
+file.move(file_tif, path)
+  
+}
+
+```
+
+## Read .csv files
+```{r}
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+subfolder_list<- subfolder_list [ grepl("Cell", subfolder_list) ]
+
+csv_list<- list()
+df_list<- list()
+
+pixel <- 0.3243227
+
+# read csv files in the subfolders of subfolder list
+for (n in 1:length(subfolder_list))  
+{
+  csv_list[[n]] <- list.files(subfolder_list[n],pattern = "(.*)csv$", 
+                     recursive = TRUE,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+  
+  df <- do.call("cbind", lapply(csv_list[[n]], read.csv, header = TRUE))
+  df <-df[, grep(c("Tip.point|Length"),  colnames(df)), drop = FALSE] %>% as.data.table()
+  df <- mapply(`*`,df, pixel)
+  colnames(df)<- paste("Length", seq( from = 1, to = ncol(df) ),  sep = ".")
+  
+  df_list[[n]]<- df
+ 
+}
+
+names(df_list)<- subfolder_list
+```
+
+## Import time-series neurite length data
+```{r}
+
+# multivariate time series: multiple neurites
+mts_list<- list()
+mts_avg_list <- list()
+mts_stationary_list <- list()
+
+freq <- 0.2 
+
+for (n in 1:length(df_list))  {
+ 
+  length_mat<-df_list[[n]] %>% as.data.frame()
+  length_mat$sum_length <- length_mat %>% rowSums() 
+  
+  mts_list[[n]]<- length_mat %>% ts(frequency = freq, start = c(0, 1)) 
+  
+  # Moving Average to smoothen out outliers/noise
+  mts_avg_list[[n]] <- length_mat %>% forecast::ma(3) %>% ts(frequency = freq, start = c(0, 1)) 
+  colnames(mts_avg_list[[n]])<-colnames(length_mat)
+  
+  # Differential 
+  mts_stationary_list[[n]] <- mts_avg_list[[n]] %>% MTS::diffM(d=1) %>% ts(frequency = freq, start = c(0, 1))
+  
+}
+
+names(mts_list)<- names(df_list)
+names(mts_avg_list)<- names(df_list)
+names(mts_stationary_list)<- names(df_list)
+
+```
+
+## Plotting the time series as curves
+```{r}
+library(ggthemes)
+
+mts_profile_list <- list()
+avg_profile_list <- list()
+sta_profile_list <- list()
+thres= 0.3 # change threshold for stationary profile here
+
+for (n in 1:length(mts_avg_list))  {
+  
+ plot_title<- paste(names(df_list)[n], sep = "")
+ selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(mts_avg_list[[n]]))
+
+ theme_set(theme_bw())
+ avg_profile_list[[n]] <- mts_avg_list[[n]][, selected_data] %>%  autoplot() +
+  #ggtitle (plot_title) +
+   theme_linedraw()+
+  scale_x_continuous(expand = c(0, 0), limits = c(0, NA)) + 
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 45))+
+  geom_line(aes(),size=1)  +
+   scale_color_viridis(discrete=T)+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12)) #for centering the text
+ 
+ mts_profile_list[[n]] <- mts_list[[n]][, selected_data] %>%  autoplot() +
+ # ggtitle (plot_title) +
+    theme_linedraw()+
+  geom_line(aes(),size=1)  +
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+ 
+ sta_profile_list[[n]] <- mts_stationary_list[[n]][, selected_data] %>%  autoplot() +
+  #ggtitle (plot_title) +
+    theme_linedraw()+
+  geom_line(aes(),size=0.25)  +
+   geom_hline(yintercept=0, linetype="dashed", color = "red")+
+   geom_hline(yintercept=thres, linetype="dashed", color = "blue")+
+   geom_hline(yintercept=-thres, linetype="dashed", color = "blue")+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+ 
+}
+
+names(mts_profile_list) <- names(df_list)
+names(avg_profile_list) <- names(df_list)
+names(sta_profile_list) <- names(df_list)
+```
+
+## Visualization of the selected curves
+```{r warning=FALSE,  message = FALSE, warning=FALSE, fig.width=10}
+fig_A <- mts_profile_list[[2]]
+fig_B <- avg_profile_list[[2]]
+fig_C <- sta_profile_list[[2]]
+
+ggpubr::ggarrange(fig_B, fig_C,
+                  labels = c("B", "C"),
+                  ncol = 1, nrow = 2,  legend="none")
+
+```
+
+```{r}
+ggsave(
+  "avg_2.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+## We convert the multiple times series data to appropriate dataframe for stack area plot
+```{r}
+
+selected_list <-mts_stationary_list
+stacked_avg_list <- list()
+
+for (m in 1:length(selected_list)) {
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+  
+  colNames <- colnames(selected_list[[m]][ ,selected_data])
+  length_mat<- selected_list[[m]][, selected_data] %>%  forecast::ma(3) %>% as.data.frame() # add forecast::ma(5) if smoothening is wanted
+  colnames(length_mat) <- colNames 
+  
+  mts_dim<- dim(length_mat)
+  length_mat$Time <- as.numeric(rep(seq(0,mts_dim[1]-1)* 1/freq), times=mts_dim[2] )
+  
+ stacked_avg_list [[m]] <- length_mat %>% gather(Neurite, Length, -Time) %>% as.data.table()
+  
+}
+```
+
+```{r warning=FALSE,  message = FALSE, warning=FALSE, fig.width=10}
+stacked_avg_list[[2]] %>% 
+  ggplot(aes(x = Time, y = Length, fill = Neurite)) +
+    geom_area(alpha=1 ) +
+  theme_linedraw()+
+  
+    scale_fill_viridis(discrete = T) + 
+  scale_y_continuous( limits = c(-1.2, 1.8), breaks = scales::pretty_breaks(n = 7))+
+  scale_x_continuous(expand = c(0, 0), limits = c(0, NA)) + 
+
+  # scale_fill_brewer(palette = "Set2") +
+   # theme_ipsum(grid = F, ticks = T) +
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none", 
+        axis.text=element_text(size=12)) #for centering the text
+```
+
+```{r}
+ggsave(
+  "avg_2.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+## Calculate neurite outgrowth/retraction events from the stationary/differential curves
+
+```{r}
+selected_list <- mts_stationary_list # mts_stationary_list or mts_avg_list
+
+pos_neg_thres_list <- list()
+# thres= 0.02 # change threshold here
+
+for (n in 1: 10){
+  
+  thres= n*0.05
+  pos_neg_list <- list()
+  
+  for (m in 1:length(selected_list)) {
+    
+    selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+    length_mat<- selected_list[[m]][, selected_data] %>% as.data.frame()
+    
+    length_mat2 <- length_mat
+    neurite_num <- ncol(length_mat)
+  
+    tab1 <- apply(length_mat, 1, function(x) sum(x > thres, na.rm = TRUE)) %>%  table() %>% as.data.table()
+    tab1$act<- "extension"
+    names(tab1)[1]<- "Num"
+    tab1$Num <- tab1$Num %>% as.numeric()
+    tab1$pct<- tab1$N/sum(tab1$N)
+    tab1$rel_n <- tab1$Num/neurite_num
+    tab1$Cell<- names(df_list)[m]
+    
+    tab2 <- apply(length_mat, 1, function(x) sum(x < -thres, na.rm = TRUE)) %>%  table() %>% as.data.table()
+    tab2$act<- "retraction"
+    names(tab2)[1]<- "Num"
+    tab2$Num <- tab2$Num %>% as.numeric()
+    tab2$pct<- tab2$N /sum(tab2$N)
+    tab2$rel_n <- tab2$Num/neurite_num
+    tab2$Cell<- names(df_list)[m]
+  
+    tab3 <- apply(length_mat, 1, function(x) sum(x < thres & x > -thres, na.rm = TRUE)) %>%  table() %>% as.data.table()
+    tab3$act<- "pause"
+    names(tab3)[1]<- "Num"
+    tab3$Num <- tab3$Num %>% as.numeric()
+    tab3$pct<- tab3$N/sum(tab3$N)
+    tab3$rel_n <- tab3$Num/neurite_num
+    tab3$Cell<- names(df_list)[m]
+    
+    tab4 <- rbind(tab1, tab2, tab3)
+    tab4$Thres<- thres
+    
+    pos_neg_list[[m]] <- tab4
+  }
+
+  names(pos_neg_list)<- names(df_list)
+  
+  pos_neg_thres_list[[n]]<- assign(paste0("Thres_", thres, sep=""),pos_neg_list)
+  names(pos_neg_thres_list)[n]<- paste0("Thres_", thres, sep="")
+  
+}
+```
+
+```{r message=FALSE, warning=FALSE}
+summary_list <- list()
+
+for (n in 1: 10){
+  
+  pos_neg_list <- pos_neg_thres_list[[n]]
+  
+  pos_neg_tab_all <- pos_neg_list[[1]] 
+  
+  for (m in 2:length(pos_neg_list)) {
+    
+    df2 <- pos_neg_list[[m]] 
+    pos_neg_tab_all <- rbind(pos_neg_tab_all, df2) 
+  
+  }
+
+  tab <- pos_neg_tab_all[act == "extension"] %>% group_by(Num) %>% rstatix::get_summary_stats(pct)
+  tab$Thres<- n*0.05
+  summary_list [[n]] <- tab 
+
+}
+
+names(summary_list) <-  names(pos_neg_thres_list)
+
+df_summary_all <- summary_list [[1]]
+
+for (n in 2: 10){
+  df_summary_all <-  rbind (df_summary_all, summary_list [[n]])
+  
+}
+
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+
+df_summary_all <- df_summary_all %>% as.data.table()
+ggplot(df_summary_all, aes(x=Num, y=mean, group=Thres)) +
+  
+  geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd, fill=Thres),   alpha=0.05) + 
+  geom_line(aes(colour=Thres), size=1, alpha=1) +
+  
+  scale_y_continuous(  breaks = scales::pretty_breaks(n = 6))+
+  scale_x_continuous(name="Neurite_No", limits=c(0,4), expand = c(0, 0), breaks = c(0,1,2,3,4,5,6))+
+  
+  scale_fill_viridis(discrete = F) + # scale_fill_brewer(palette = "Set2") +
+  scale_color_viridis(discrete = F)+
+
+  theme_linedraw()+
+  geom_hline(yintercept=0, linetype="dashed", color = "black")+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12), 
+        legend.position = "none") #for centering the text
+```
+
+```{r}
+ggsave(
+  "extension_freq.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r}
+pos_neg_list <- pos_neg_thres_list$Thres_0.5
+
+pos_neg_tab_all <- pos_neg_list[[1]] 
+
+for (m in 2:length(pos_neg_list)) {
+  
+  df2 <- pos_neg_list[[m]] 
+  pos_neg_tab_all <- rbind(pos_neg_tab_all, df2) 
+
+}
+
+tab <- pos_neg_tab_all[act == "extension"]
+
+df_summary <- tab %>% group_by(Num) %>% rstatix::get_summary_stats(pct)
+
+```
+
+```{r}
+tab %>% write_csv("extension_freq.csv")
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+
+ggplot(df_summary, aes(x=Num, y=mean)) +
+  
+  geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="lightgrey", alpha=1)+
+
+  geom_line(size=1, alpha=1) +
+  scale_y_continuous(  breaks = scales::pretty_breaks(n = 6))+
+  scale_x_continuous(name="Neurite_No", limits=c(0,4), expand = c(0, 0), breaks = c(0,1,2,3,4,5,6))+
+  
+  scale_fill_viridis(discrete = F) + # scale_fill_brewer(palette = "Set2") +
+  scale_color_viridis(discrete = F)+
+
+  theme_linedraw()+
+  geom_hline(yintercept=0, linetype="dashed", color = "black")+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12), 
+        legend.position = "none") #for centering the text
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+# remove cells in "without any outgrowth" state more than 60% of the time 
+removed <- pos_neg_tab_all[act == "extension" & Num == 0 & pct > 0.5] 
+removed_cell<- removed$Cell
+pos_neg_tab_all_removed<- pos_neg_tab_all[grep(paste(removed_cell,collapse="|"), pos_neg_tab_all$Cell , invert=TRUE) ,]
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+ggplot(data=pos_neg_tab_all_removed, aes(x=Num, y=pct, group=Cell)) +
+  geom_line((aes(color=Cell)))+
+  geom_point((aes(color=Cell)))+ 
+scale_x_continuous(name="Neurite_No", limits=c(0, 6), breaks = c(0,1,2,3,4,5,6))+
+theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12), 
+        legend.position = "none") #for centering the text
+```
+
+```{r}
+ggsave(
+  "WT_neuriteNumFreq_avg.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+## We smoothen the stationary profiles first, separete outrgwoth and retraction events, and sum the changes of all neurites. (Smoothening -> separate -> sum)
+```{r warning=FALSE}
+
+# Smoothen the stationary (diff) profiles and optionally filter out small length change with threshold
+
+selected_list <- mts_stationary_list # mts_stationary_list or mts_avg_list
+
+mts_stationary_pos_list <- list()
+mts_stationary_neg_list <- list()
+thres= 0.0 # change threshold here
+
+# Positive peaks only (outgrowth event)
+for (m in 1:length(selected_list)) {
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+  length_mat<- selected_list[[m]][, selected_data ]
+  
+  length_mat_avg<- length_mat %>% forecast::ma(3) %>% as.ts() # Average smoothening
+  colnames(length_mat_avg)<-colnames(length_mat)
+
+  mts_dim<- dim(length_mat_avg)
+    for (n in 1:mts_dim[2]){
+      length_mat_avg[, n][length_mat_avg[ , colnames(length_mat_avg)[n]] < thres] <- 0 
+    }
+  
+  length_mat_avg <- length_mat_avg %>% as.data.frame() 
+  length_mat_avg$sum <- length_mat_avg  %>% rowSums()  # We sum up the extent of outgrowth at each time point
+  mts_stationary_pos_list[[m]] <- length_mat_avg %>% ts(frequency = freq, start = c(0, 1)) 
+
+}
+
+# Negative peaks only (retraction event)
+for (m in 1:length(selected_list)) {
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+  length_mat<- selected_list[[m]][, selected_data ]
+  length_mat_avg<- length_mat %>% forecast::ma(3) %>% as.ts() # Average smoothening
+  colnames(length_mat_avg)<-colnames(length_mat)
+  
+  mts_dim<- dim(length_mat_avg)
+    for (n in 1:mts_dim[2]){
+      length_mat_avg[, n][length_mat_avg[ , colnames(length_mat_avg)[n]] > - thres] <- 0 
+    }
+  length_mat_avg <- length_mat_avg %>% as.data.frame() 
+  length_mat_avg$sum <- length_mat_avg  %>% rowSums()  # We sum up the extent of retraction at each time point
+  mts_stationary_neg_list[[m]] <- length_mat_avg %>% ts(frequency = freq, start = c(0, 1)) 
+}
+
+```
+
+```{r warning=FALSE,  message = FALSE, warning=FALSE, fig.width=10}
+selected_stationary <- mts_stationary_pos_list[[15]]
+selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_stationary))
+
+figA <- selected_stationary[ ,selected_data] %>%  autoplot() +
+  geom_line(aes(),size=0.25)  +
+   geom_hline(yintercept=0, linetype="dashed", color = "red")+
+   geom_hline(yintercept=thres, linetype="dashed", color = "blue")+
+   geom_hline(yintercept=-thres, linetype="dashed", color = "blue")+
+   scale_color_viridis(discrete=T)+
+   theme_minimal()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold"))
+
+selected_stationary <- mts_stationary_neg_list[[15]]
+
+figB <- selected_stationary[ ,selected_data] %>%  autoplot() +
+   geom_line(aes(),size=0.25)  +
+   geom_hline(yintercept=0, linetype="dashed", color = "red")+
+   geom_hline(yintercept=thres, linetype="dashed", color = "blue")+
+   geom_hline(yintercept=-thres, linetype="dashed", color = "blue")+
+   scale_color_viridis(discrete=T)+
+   theme_minimal()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold")) 
+ 
+ ggpubr::ggarrange(figA, figB, 
+                  labels = c("A", "B"),
+                  ncol = 1, nrow = 2,  legend="none")
+ 
+```
+
+## We convert the multiple times series data to appropriate dataframe for stack area plot
+```{r warning=FALSE,  message = FALSE, warning=FALSE, fig.width=10}
+
+# Positive peaks only (outgrowth event)
+selected_list <- mts_stationary_pos_list
+stacked_stationary_pos_list <- list()
+
+for (m in 1:length(selected_list)) {
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+  length_mat<- selected_list[[m]][, selected_data] %>% as.data.frame() 
+  mts_dim<- nrow(length_mat)-1
+  length_mat$Time <- as.numeric(rep(seq(0,mts_dim)*2))
+  
+  stacked_stationary_pos_list[[m]] <- length_mat %>% gather(Neurite, Length, -Time) %>% as.data.table()
+
+}
+
+# Negtive peaks only (retraction event)
+selected_list <- mts_stationary_neg_list
+stacked_stationary_neg_list <- list()
+
+for (m in 1:length(selected_list)) {
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]]))
+  length_mat<- selected_list[[m]][, selected_data] %>% as.data.frame() 
+   mts_dim<- nrow(length_mat)-1
+  length_mat$Time <-  as.numeric(rep(seq(0,mts_dim)*2))
+  
+stacked_stationary_neg_list[[m]] <- length_mat %>% gather(Neurite, Length, -Time) %>% as.data.table()
+}
+
+```
+
+```{r warning=FALSE}
+figA <-  stacked_stationary_pos_list[[2]] %>% 
+  ggplot(aes(x = Time, y = Length, fill = Neurite)) +
+    geom_area(alpha=0.5 , size=.5, colour="white") +
+    scale_fill_viridis(discrete = T) + # scale_fill_brewer(palette = "Set2") +
+    theme_ipsum(grid = F, ticks = T) 
+
+figB <- stacked_stationary_neg_list[[2]] %>% 
+  ggplot(aes(x = Time, y = Length, fill = Neurite)) +
+    geom_area(alpha=0.5 , size=.5, colour="white") +
+    scale_fill_viridis(discrete = T) + # scale_fill_brewer(palette = "Set2") +
+    theme_ipsum(grid = F, ticks = T) 
+ 
+ ggpubr::ggarrange(figA, figB, 
+                  labels = c("A", "B"),
+                  ncol = 1, nrow = 2,  legend="none")
+ 
+```
+
+# We plot the overall outgrowth/retraction level over time
+```{r warning=FALSE,  message = FALSE, warning=FALSE, fig.width=10}
+selected_stationary_pos <- mts_stationary_pos_list[[2]][, "sum"]
+selected_stationary_neg <- mts_stationary_neg_list[[2]][, "sum"]
+ts.union(selected_stationary_pos, selected_stationary_neg) %>%  autoplot() +
+  geom_line(aes(),size=0.25)  +
+   geom_hline(yintercept=0, linetype="dashed", color = "black")+
+   #geom_hline(yintercept=thres, linetype="dashed", color = "blue")+
+   #geom_hline(yintercept=-thres, linetype="dashed", color = "blue")+
+   scale_y_continuous( limits = c(-1.2, 1.8), breaks = scales::pretty_breaks(n = 7))+
+  scale_x_continuous(expand = c(0, 0), limits = c(0, NA)) + 
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+```{r}
+ggsave(
+  "avg_2.eps",
+  plot = last_plot(),
+  device = "eps")
+
+```
+
+```{r warning=FALSE,  message = FALSE, warning=FALSE, fig.width=10}
+ccf(selected_stationary_pos, selected_stationary_neg,  type = "correlation", na.action = na.pass, lag.max=100) 
+# The lines give the values beyond which the autocorrelations are (statistically) significantly different from zero.
+
+```
+
+## Here we separate the outrgwoth and retraction events first, sum the changes of all neurites, and then do smoothening. (separate -> sum -> smoothening)
+```{r}
+
+selected_list <- mts_stationary_list 
+mts_stationary_sum_list <- list()
+
+thres= 0.0 # change threshold here
+
+# Positive peaks only (outgrowth event)
+for (m in 1:length(selected_list)) {
+  selected_data <- grep(paste(c("Length"),collapse="|"),  colnames(selected_list[[m]])) # Neurite length ("Length") only or include actin intensity (Integerated.intensity)
+  length_mat_pos<- selected_list[[m]][, selected_data ]
+  length_mat_neg<- selected_list[[m]][, selected_data ]
+  
+  mts_dim<- dim(length_mat_pos)
+  
+    for (n in 1:mts_dim[2]){
+      length_mat_pos[, n][length_mat_pos[ , colnames(length_mat_pos)[n]] < 0] <- 0 
+      length_mat_neg[, n][length_mat_neg[ , colnames(length_mat_neg)[n]] > 0] <- 0 
+    }
+  
+  length_mat_pos <- as.data.frame(length_mat_pos)
+  length_mat_neg <- as.data.frame(length_mat_neg)
+   
+  length_mat_pos$sum <- length_mat_pos  %>% rowSums()  
+  length_mat_neg$sum <- length_mat_neg  %>% rowSums()  
+  
+  length_mat_pos <- length_mat_pos %>% ts(frequency = freq, start = c(0, 1))
+  length_mat_neg <- length_mat_neg %>% ts(frequency = freq, start = c(0, 1))
+  
+  length_mat_sum <- ts.union(length_mat_pos[ ,"sum"], length_mat_neg[ ,"sum"]) 
+  
+  length_mat_sum <- length_mat_sum %>% forecast::ma(3) %>% as.ts() # Average smoothening
+  colnames(length_mat_sum)<-c("Pos", "Neg")
+  
+  length_mat_sum [, "Pos"][length_mat_sum [, "Pos"] < thres] <- 0 
+  length_mat_sum [, "Neg"][length_mat_sum [, "Neg"] > -thres] <- 0 
+  
+  mts_stationary_sum_list[[m]] <- length_mat_sum
+
+}
+
+names(mts_stationary_sum_list)<- names(mts_stationary_list )
+
+```
+
+```{r warning=FALSE,  message = FALSE, warning=FALSE, fig.width=10}
+selected_stationary_sum <- mts_stationary_sum_list[[2]]
+
+ selected_stationary_sum %>%  autoplot() +
+  geom_line(aes(),size=0.25)  +
+   geom_hline(yintercept=0, linetype="dashed", color = "red")+
+   geom_hline(yintercept=thres, linetype="dashed", color = "blue")+
+   geom_hline(yintercept=-thres, linetype="dashed", color = "blue")+
+   theme_ipsum(grid = F, ticks = T) + 
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold"),
+        legend.position = "none")  #for centering the text
+ # stat_peaks(colour = "red", ignore_threshold = 0.1) +
+ # stat_peaks(geom = "text", colour = "red", vjust = -0.5) +
+ # stat_valleys(colour = "blue", ignore_threshold = 0.1) + 
+ # stat_valleys(geom = "text", colour = "blue", angle = 45, vjust = 1.5, hjust = 1)
+```
+
+# Time-lagged cross-corrleation of outgrowth and retraction profiles
+```{r warning=FALSE,  message = FALSE, warning=FALSE, fig.width=10}
+
+length_ccf_list <- list()
+
+for (m in 1:length(mts_stationary_sum_list)) {
+  
+  selected_length_sta_sum <- mts_stationary_sum_list[[m]]
+  
+ # The lines give the values beyond which the autocorrelations are (statistically) significantly different from zero.
+
+  length_ccf_plot <-ccf (selected_length_sta_sum[, "Pos"],  
+                            -selected_length_sta_sum[, "Neg"], 
+                            type = "correlation", 
+                            na.action = na.pass, plot=F,
+                            lag.max=20) 
+  
+  length_ccf_list[[m]] <- length_ccf_plot 
+  
+}
+
+names(length_ccf_list) <-  names(mts_stationary_sum_list)
+
+length_ccf <- length_ccf_list[[1]][["acf"]] %>% as.data.frame()
+for (m in 2:length(length_ccf_list)) {
+  
+  length_ccf <- cbind(length_ccf , length_ccf_list[[m]][["acf"]])
+}
+
+colnames(length_ccf) <- names(length_ccf_list)
+
+length_ccf$lag<- c(-20:20)
+
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+selected_ccf <- length_ccf %>% as.data.table()
+selected_ccf$lag<- selected_ccf$lag/freq 
+
+stacked_ccf_mat <- selected_ccf %>% gather(Cell, ccf, -lag) # select which CCF of measurements to show
+df_summary <- stacked_ccf_mat %>% group_by(lag) %>% rstatix::get_summary_stats(ccf)
+```
+
+```{r}
+ggsave(
+  "length_ccf.pdf",
+  plot = last_plot(),
+  device = "pdf")
+
+```
+```{r}
+selected_ccf2 %>%  write_csv("length_ccf.csv")
+```
+```{r}
+ggsave(
+  "length_ccf.eps",
+  plot = last_plot(),
+  device = "eps")
+
+```
+# Time-lagged cross-corrleation of outgrowth and retraction profiles
+```{r warning=FALSE}
+# constructing partial dependence (i.e., marginal effect) plots 
+library(pdp)
+theme_set(theme_bw())
+mts_avg_list[[2]][ ,c("Length.2", "Length.4")] %>%  autoplot() +
+  ylim(0, 45) +
+  ggtitle (plot_title) +
+  geom_line(aes(),size=1)  +
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+
+```
+
+# Identify peak and valley
+
+## moving/rolling window cross-correlation
+```{r warning=FALSE}
+save.image(saved_path)
+```
+
+## windowed Time Lagged Cross Correlation (wTLCC) 
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(saved_path)
+```
+
+## Package installation
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.

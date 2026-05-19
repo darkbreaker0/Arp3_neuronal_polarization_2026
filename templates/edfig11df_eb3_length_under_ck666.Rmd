@@ -1,0 +1,454 @@
+---
+title: "Canonical template: ED Fig 11d-f EB3 length under CK-666"
+output: html_notebook
+---
+
+<!--
+================================================================================
+  CANONICAL TEMPLATE — DO NOT RENDER DIRECTLY
+================================================================================
+  This Rmd is INCLUDED by 4 thin wrappers in
+  `figures/EDFig11_microtubules/`:
+
+    edfig11df_eb3_div2_ck666_raw_d_drive.Rmd        (DIV-2, raw)
+    edfig11df_eb3_div2_decon_cropped_d_drive.Rmd    (DIV-2, deconvolved cropped)
+    edfig11df_eb3_div3_ck666_decon_d_drive.Rmd      (DIV-3, deconvolved)
+    edfig11df_eb3_div4_ck666_raw_d_drive.Rmd        (DIV-4, raw)
+
+  Each wrapper sets `params` in its YAML and includes this file via:
+
+      ```{r child = "../../templates/edfig11df_eb3_length_under_ck666.Rmd"}
+      ```
+
+  -------- PARAMETERS expected --------
+    params$image_pipeline       "raw" | "cropped" | "decon"
+                                Drives the str_extract regex that pulls
+                                the per-cell folder name out of the CSV
+                                path. The legacy wrappers had this
+                                regex hard-coded; the regex itself is
+                                "(?<=<pipeline>/)[^/]+" where <pipeline>
+                                is one of those three folder-name tokens.
+
+    params$summary_variable     "growth_speed_median"     |
+                                "growth_lifetime_mean"    |
+                                "growth_length_mean"
+                                Which per-cell EB3 summary statistic is
+                                plotted as the final violin/box panel.
+                                Most wrappers use "growth_speed_median";
+                                the decon-cropped DIV-2 wrapper uses
+                                "growth_lifetime_mean".
+
+    params$pdf_name             Default: "EB3_length.eps"
+                                ggsave filename for the final panel.
+                                All 4 legacy wrappers used the same name;
+                                exposed as a parameter for safety so
+                                wrappers can avoid clobbering each other
+                                if rendered to the same output directory.
+
+    params$div                  Integer (2, 3, or 4) — metadata only,
+                                shown in the title bar; not used in logic.
+
+    params$d_drive_source       String, displayed in this header only;
+                                identifies which D:\ file this batch was
+                                copied from.
+
+================================================================================
+  PANEL TARGETS (Lin et al., Nature 2026)
+================================================================================
+  Manuscript figure title (ED Fig 11):
+    "Acute Arp2/3 inhibition with CK-666 induces actomyosin contraction
+     that compresses microtubules and retracts neurites"
+
+  Panels supported: ED Fig 11d, 11e, 11f. Each wrapper processes one
+  experimental batch (DIV stage + image-pipeline stage) and the
+  consolidator at edfig11f_eb3_tip_integrated_intensity.Rmd aggregates.
+
+  Stat: paired Wilcoxon (Before vs CK-666 vs WO; pairwise).
+
+================================================================================
+  REPO STATUS
+================================================================================
+  Extracted: 2026-05-12 from 4 wrapper Rmds (deduplicated ~720 lines of
+             near-identical analysis code into 1 ~250-line template +
+             4 thin ~25-line wrappers).
+  Essentiality: Template (canonical parameterized analysis).
+================================================================================
+-->
+
+
+## Step 0: Resolve parameters from the calling wrapper
+
+```{r template_eb3_resolve_params, message=FALSE, warning=FALSE, echo=FALSE}
+if (!exists("params") || is.null(params)) {
+  stop("This Rmd is a canonical template; render via a wrapper that supplies `params` ",
+       "(see figures/EDFig11_microtubules/edfig11df_eb3_div*_d_drive.Rmd).")
+}
+pipeline_tok <- params$image_pipeline
+cell_regex   <- paste0("(?<=", pipeline_tok, "/)[^/]+")
+summary_var  <- params$summary_variable
+pdf_name     <- params$pdf_name
+```
+
+
+## Step 1: Load libraries
+
+A superset of packages used throughout this pipeline. Not all are needed
+for every chunk; the union of historical imports is preserved here so the
+analysis re-runs identically on any Bradke-lab R install.
+
+Key packages used downstream:
+- **tidyverse / data.table / magrittr** — data wrangling + pipe `%>%`
+- **forecast / tsibble / tsbox / tidyquant** — time-series construction
+  (`ts()`, moving-average `forecast::ma()`)
+- **rstatix / ggpubr** — Wilcoxon/KW with multi-comparison annotation
+- **ggfortify / ggplot2 / hrbrthemes / viridis** — plotting + themes
+- **pheatmap / superheat / RColorBrewer** — heatmaps (used only in
+  exploratory chunks; not on the manuscript path)
+- **pracma / peakPick / quantmod / ggpmisc** — peak detection / interpolation
+
+```{r template_eb3_libs, message=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(viridis)
+library(hrbrthemes)
+library(data.table)
+library(ggpubr)
+library(superheat)
+```
+
+
+## Step 2: Load existing/saved environment (.RData) — fast path
+
+R Markdown re-runs every chunk on render, which is slow for big datasets.
+The Bradke-lab convention here is: after a successful first run, snapshot
+the whole working environment to `df_list.RData` next to the Rmd. On the
+next render, this chunk loads that snapshot — bypassing the expensive
+file-reading + cleaning steps below.
+
+`rstudioapi::getSourceEditorContext()$path` returns the absolute path of the
+currently-edited Rmd file in RStudio. **Important**: this only works when
+the Rmd is being EDITED in RStudio (or rendered via RStudio's Knit button).
+For headless `Rscript -e "rmarkdown::render(...)"` runs, replace with
+`here::here()` or a hard-coded `Path_1`.
+
+```{r template_eb3_load_env}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)   # wrapper directory
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+load(file=saved_path)   # restores ALL named objects from a previous run
+```
+
+
+## Step 3 (one-time, manual): sort raw output files into soma/GC/shaft sub-folders
+
+The TrackMate exporter places one ROI per sub-folder (`roi_0`, `roi_1`,
+`roi_2`, ...) without semantic labels. The helper below re-files those
+ROI folders under semantically-named parent folders (soma / GC / shaft)
+based on a simple rule: `roi_0` is soma; `roi_1..N/2` are GC;
+`roi_(N/2+1)..N` are shaft. This is a one-time setup step per imaging
+session; safe to re-run idempotently.
+
+```{r template_eb3_sort_rois}
+library(fs)        # filesystem ops: dir_ls, file_move, dir_create
+library(stringr)   # string ops: str_extract with regex
+
+# Function that does the actual reorganisation. Takes the parent directory
+# where multiple "imaging-session" folders live; under each session folder
+# it expects raw `roi_<N>` subfolders from TrackMate.
+organize_rois <- function(base_directory) {
+  main_folders <- dir_ls(base_directory, type = "directory")
+
+  for (folder in main_folders) {
+    # Define the 3 semantic destination folders.
+    soma_dir  <- path(folder, "soma")
+    gc_dir    <- path(folder, "GC")
+    shaft_dir <- path(folder, "shaft")
+
+    # dir_create is idempotent — safe to call even if these already exist.
+    dir_create(soma_dir)
+    dir_create(gc_dir)
+    dir_create(shaft_dir)
+
+    # Find all sub-folders whose name contains "roi". The regexp filter
+    # speeds things up vs listing then post-filtering.
+    roi_folders <- dir_ls(folder, type = "directory", regexp = "roi")
+
+    # Extract the numeric ID after "roi_" (e.g. "roi_5" -> 5).
+    # `(?<=roi_)` is a lookbehind — matches POSITION right after "roi_"
+    # without consuming those characters.
+    roi_numbers <- as.integer(str_extract(roi_folders, "(?<=roi_)\\d+"))
+    total_rois  <- max(roi_numbers, na.rm = TRUE)
+
+    # Now classify each roi_<N> folder by index:
+    #   N == 0          -> soma   (the central/cell-body ROI)
+    #   1..total/2      -> GC     (growth cone ROIs, lower indices)
+    #   total/2+1..total -> shaft  (mid-neurite ROIs, higher indices)
+    # This convention comes from how the Bradke-lab macro numbers ROIs
+    # left-to-right starting at the soma.
+    for (roi_folder in roi_folders) {
+      roi_number <- as.integer(str_extract(roi_folder, "(?<=roi_)\\d+"))
+      if (is.na(roi_number)) next   # skip if name didn't match (e.g. README)
+
+      if (roi_number == 0) {
+        target_dir <- soma_dir
+      } else if (roi_number <= (total_rois %/% 2)) {   # %/% = integer division
+        target_dir <- gc_dir
+      } else {
+        target_dir <- shaft_dir
+      }
+
+      # Move the ROI folder under the chosen semantic parent.
+      # path_file() extracts the basename so we don't accidentally nest paths.
+      file_move(roi_folder, path(target_dir, path_file(roi_folder)))
+    }
+  }
+}
+
+base_directory <- Path_1   # uses Path_1 set in Step 2
+organize_rois(base_directory)
+```
+
+
+## Step 4: Read per-ROI TrackMate "_stats.txt" output
+
+TrackMate (the Fiji plug-in we use to track EB3 comets) writes one
+tab-separated stats file per ROI. Each file is a long-form table:
+**variable name in column 1, one value per track in columns 2..N+1**.
+The variable list includes things like `growth_speed_median`,
+`growth_lifetime_mean`, `growth_length_mean`, etc. — about 41 variables
+in total.
+
+We read every stats file, then `left_join` them all together by the
+variable-name column (`X1`). Result: a wide table where each row is one
+TrackMate variable and each column (after `X1`) is one ROI's value.
+
+```{r template_eb3_read_stats, message=FALSE}
+# Find every "*stats*.txt" file in this directory tree (recursive).
+csv_list <- list.files(Path_1,
+                       pattern = "tats(.*)txt$",      # matches "...stats....txt"
+                       recursive    = TRUE,
+                       include.dirs = FALSE,
+                       full.name    = TRUE)           # return full paths, not basenames
+
+# Read each file into a data.table; store them in a list.
+df_list <- list()
+for (n in 1:length(csv_list)) {
+  df <- readr::read_delim(csv_list[n], "\t",          # tab-separated
+                          escape_double = FALSE,
+                          col_names     = FALSE,       # no header row in these files
+                          trim_ws       = TRUE) %>%
+    as.data.table()
+  df_list[[n]] <- df
+}
+
+# Stitch all the per-file tables side-by-side, matching on the variable-name
+# column (`X1`). After the loop, df_1 has one row per TrackMate variable and
+# (1 + #ROIs) columns: the variable name plus one value per ROI.
+df_1 <- df_list[[1]]
+for (n in 2:length(df_list)) {
+  df_1 <- left_join(df_1, df_list[[n]], by = c("X1" = "X1"))
+}
+```
+
+
+## Step 5: Clean + transpose + label by cell / roi_num / region
+
+The table from Step 4 has "variables down, ROIs across" — but for stats
+we want "ROIs down, variables across" (so each row is one observation).
+We `t()` to transpose, then attach metadata columns that identify each
+ROI's source (which cell, which region, which numeric index).
+
+The metadata columns come from parsing the file path with `str_extract`:
+the path includes the cell folder name and a `roi_<N>` suffix and a
+`GC | soma | shaft` parent folder.
+
+```{r template_eb3_clean_label, message=FALSE}
+# Drop rows that are NaN across all ROI columns (-1 excludes the variable
+# name column from the test). `apply(MARGIN=1, FUN=...)` applies the
+# function row-wise; the function returns TRUE if every numeric entry is NaN.
+df_1_cleaned <- df_1[!apply(df_1[, -1], 1, function(row) all(is.nan(row))), ] %>%
+  t() %>%            # transpose: now variable-names are columns, ROIs are rows
+  as.data.table()
+
+# After transpose, the FIRST row holds the variable names (former col-1
+# values). Promote it to be the actual column names of the data.table.
+colnames(df_1_cleaned) <- df_1_cleaned[1] %>% as.character()
+df_1_cleaned <- df_1_cleaned[-1]               # drop that name-row
+df_1_cleaned[] <- lapply(df_1_cleaned, as.numeric)   # coerce all cols to numeric
+
+# Add per-ROI metadata columns, parsed from each ROI's source file path.
+df_1_cleaned$roi      <- csv_list %>% str_extract("roi_\\d+")             # "roi_3"
+df_1_cleaned$cell     <- str_extract(csv_list, cell_regex)                # cell folder
+df_1_cleaned$roi_num  <- as.integer(str_extract(csv_list, "(?<=roi_)\\d+"))  # 3
+df_1_cleaned$region   <- target_folders <- stringr::str_extract(csv_list,
+                                                               "(GC|soma|shaft)")
+```
+
+
+## Step 6: Persist working environment (fast re-load on next render)
+
+```{r template_eb3_save_env}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+```
+
+
+## Step 7: Per-cell per-region summary statistics
+
+`rstatix::get_summary_stats()` computes a standard battery of descriptive
+stats (n, min, max, mean, sd, median, quartiles, IQR, mad, etc.) for every
+named column. We feed it columns 1..41 of `df_1_cleaned` — that's all
+TrackMate variables (the metadata columns 42..45 are excluded).
+
+After `group_by(cell, region)`, summary statistics are computed
+**per-cell-per-region**, i.e. one row per (cell, region, variable, statistic).
+The resulting `df_summary` is a tall narrow table that we filter in Step 8.
+
+```{r template_eb3_summary, message=FALSE, warning=FALSE, fig.width=10}
+df_summary <- df_1_cleaned %>%
+  group_by(cell, region) %>%
+  rstatix::get_summary_stats(colnames(df_1_cleaned)[1:41]) %>%   # all TrackMate vars
+  as.data.table()
+```
+
+
+## Step 8: Select the requested EB3 summary variable (parameterised)
+
+`df_summary` contains MANY variables (41 TrackMate outputs × n statistics
+each, e.g. mean/median/IQR/etc.). The wrapper specifies which single
+variable becomes the figure panel via `params$summary_variable`. Common
+choices:
+
+- `growth_speed_median` — typical EB3-comet speed per cell (most wrappers)
+- `growth_lifetime_mean` — typical comet duration before disappearing
+  (DIV-2 deconvolved-cropped uses this)
+- `growth_length_mean` — typical comet path length
+
+`data.table`'s `[variable == X]` syntax filters rows where the `variable`
+column equals X. (Note: `variable` is a column added by
+`rstatix::get_summary_stats` to identify which input column the stats came
+from.)
+
+```{r template_eb3_select_summary}
+selected_summary <- df_summary[variable == summary_var]
+```
+
+
+## Step 9: Drop per-region outlier cells (boxplot IQR rule)
+
+`rstatix::identify_outliers()` uses Tukey's boxplot rule: anything outside
+Q1 − 1.5·IQR or Q3 + 1.5·IQR is flagged. Outliers are detected **per region
+group** so a cell that's an outlier at the GC isn't unfairly excluded for
+its shaft data — but if it IS flagged in any region, we drop it across
+all regions to keep the paired-line plot in Step 11 well-defined.
+
+```{r template_eb3_drop_outliers}
+outliers <- selected_summary %>%
+  group_by(region) %>%
+  rstatix::identify_outliers(mean)   # flags rows in the `mean` column
+
+# Drop every row whose cell appeared in the outliers list (any region).
+selected_summary <- selected_summary[!(cell %in% outliers$cell)]
+```
+
+
+## Step 10: Build pairwise comparison list for stat_compare_means
+
+`combn(2)` enumerates all 2-element combinations of the input. With 3
+regions (GC, soma, shaft) this returns a list of 3 pairs:
+
+    list( c("GC","soma"), c("GC","shaft"), c("soma","shaft") )
+
+`stat_compare_means` will draw a bracket + p-value over each pair in this
+list.
+
+```{r template_eb3_comparisons, fig.width=10, echo=FALSE}
+my_comparisons <- selected_summary$region %>%
+  unique() %>%
+  as.character() %>%
+  combn(2, simplify = FALSE)
+```
+
+
+## Step 11: Final per-region violin + box + paired-line panel with Wilcoxon
+
+The headline panel. Layered plot semantics (top to bottom in the layering):
+
+1. `geom_violin` — smoothed density per region; shows distribution shape.
+2. `geom_boxplot` — narrow box (width=0.2) showing median + IQR, with the
+   outlier dot turned off (`outlier.colour=NA`) since we already filtered
+   them in Step 9.
+3. `geom_point` — one dot per cell per region.
+4. `geom_path(group = cell)` — connect each cell's GC/soma/shaft points
+   with a faint line (alpha=0.5). This makes the paired structure visible.
+5. `stat_compare_means(paired=TRUE, method="wilcox.test")` — runs the
+   paired Wilcoxon signed-rank test on each pair in `my_comparisons`.
+   The `label = "{p.adj.format}{p.adj.signif}"` template shows the
+   adjusted p-value plus its significance stars (***, **, *, ns).
+
+**Why paired Wilcoxon?** Each cell contributes one value per region. The
+within-cell pairing reduces noise from between-cell heterogeneity.
+
+```{r template_eb3_final_plot, message=FALSE, warning=FALSE, fig.width=10}
+selected_summary %>%
+  ggplot(aes(x = region, y = mean, fill = region)) +
+  scale_fill_brewer(palette = "Dark2") +    # qualitative color palette
+  theme_classic() +
+
+  # Density shape
+  geom_violin(aes(), trim = FALSE, kernel = "gaussian", adjust = 1) +
+  # Median + IQR overlay
+  geom_boxplot(aes(), width = 0.2, outlier.colour = NA, fill = "white") +
+  # Per-cell points + paired lines
+  geom_point(size = 1) +
+  geom_path(aes(group = cell), alpha = 0.5) +
+
+  # Y-axis: 0..25 with ~5 pretty tick marks; expand=c(0,0) removes extra
+  # padding ggplot would otherwise add.
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 25),
+                     breaks = scales::pretty_breaks(n = 5)) +
+
+  # Paired Wilcoxon p-values, one bracket per region-pair.
+  stat_compare_means(comparisons = my_comparisons, paired = TRUE,
+                     method = "wilcox.test",
+                     label = "{p.adj.format}{p.adj.signif}") +
+
+  # Aesthetics
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw() +
+  theme(plot.title       = element_text(hjust = 0.5),
+        plot.margin      = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position  = "right",
+        axis.text        = element_text(size = 12, face = "bold"))
+```
+
+
+## Step 12: Save the final panel to disk
+
+Save as vector EPS (Encapsulated PostScript) — preferred for manuscript
+figures because vector formats scale without pixelation when laid out into
+the Illustrator figure file. The filename comes from `params$pdf_name`
+(constant `"EB3_length.eps"` for all 4 wrappers; could be uniquified by
+the user if needed to avoid overwrites between renders).
+
+```{r template_eb3_save_pdf}
+ggsave(
+  pdf_name,
+  plot   = last_plot(),     # capture the most recent ggplot in this session
+  device = "eps")           # vector output
+```

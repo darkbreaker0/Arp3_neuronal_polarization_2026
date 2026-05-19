@@ -1,0 +1,207 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+## Package installation
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+load(file=saved_path)
+
+```
+
+## Read .csv files
+```{r}
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+subfolder_list  <- subfolder_list [ grepl("Arp3_line_profile", subfolder_list) ]
+
+```
+
+```{r}
+Arp3_csv_list <- list.files(subfolder_list,pattern = "profiles.csv", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+
+Actin_csv_list <- list.files(subfolder_list,pattern = "profiles2.csv", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+```
+
+```{r}
+Arp3_list <- list()
+Actin_list <- list()
+  
+  for (n in 1:length(Arp3_csv_list))  {
+
+    df1<- read.csv(Arp3_csv_list[n], header = TRUE)  
+    df1[ df1 == 0 ] <- NA
+    Arp3_list[[n]]  <- df1 #%>% MTS::diffM(d=1)  %>% forecast::ma(5) 
+    
+    df1<- read.csv(Actin_csv_list[n], header = TRUE)  
+    df1[ df1 == 0 ] <- NA
+    Actin_list[[n]]  <- df1 #%>% MTS::diffM(d=1)  %>% forecast::ma(5) 
+    
+  }
+  
+names(Arp3_list) <- Arp3_csv_list %>% fs::path_file()
+names(Actin_list) <- Actin_csv_list %>% fs::path_file()
+```
+
+# cross-correlation with neurite length at individual neurite level
+
+```{r message = FALSE, warning=FALSE, fig.width=5}
+
+Arp3Actin_ccf_list <- list()
+
+for (n in 1:length(Arp3_list)){
+  
+roi_list <- list()
+  
+  for (m in 2:ncol(Arp3_list[[n]])){
+
+   ccf1 <-ccf (Arp3_list[[n]][m],  
+               Actin_list[[n]][m], 
+               type = "correlation", 
+               na.action = na.pass, plot=F,
+               lag.max=0) 
+   
+   roi_list[[m-1]] <- ccf1[["acf"]]
+  
+  }
+
+    df <- roi_list %>% unlist() %>% as.data.frame()
+    df$img<- names(Arp3_list)[n]
+    Arp3Actin_ccf_list[[n]] <- df
+}   
+
+names(Arp3Actin_ccf_list) <- names(Arp3_list) 
+
+Arp3Actin_ccf <- Arp3Actin_ccf_list %>% reduce(bind_rows)  %>% as.data.frame()
+
+names(Arp3Actin_ccf)[1] <- "ccf"
+
+Arp3Actin_ccf$Col <- "Arp3"
+
+```
+
+# check point distribution
+```{r}
+library(easyGgplot2)
+  ggplot2.violinplot(data = Arp3Actin_ccf, 
+                     yName="ccf", xName='Col', groupName='Col', 
+                     addDot=TRUE, dotSize=2,dotPosition="jitter", jitter=0.2, 
+                     trim=F,  kernel ="gaussian", adjust=2)+
+    
+  geom_boxplot(width=0.1, fill="white")  +
+  #theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+```
+# Data points at cell level
+```{r}
+df_summary <-Arp3Actin_ccf %>% group_by(img) %>% rstatix::get_summary_stats(ccf)
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=8}
+library(easyGgplot2)
+  ggplot2.violinplot(data = df_summary, yName="mean", xName='variable', groupName='variable', 
+                     addDot=TRUE, dotSize=2, dotPosition="jitter", jitter=0.2, 
+                     trim=F,  kernel ="gaussian", adjust=5)+
+    
+  geom_boxplot(width=0.1, fill="white")  +
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=5}
+library(ggpubr)
+
+#my_comparisons <- list( c("Pre", "Act") )
+
+#neurite_length_long<- neurite_length_long%>% subset(neurite_length_long$Series != "Post")
+
+ggplot(Arp3Actin_ccf, aes(x=Col, y=ccf)) + 
+  geom_violin(trim=FALSE, kernel ="gaussian", adjust=1)+
+  geom_boxplot(width=0.5, fill="white")  +
+  #geom_point(aes(), position = position_dodge(0.5))+
+  #geom_line(aes(), position = position_dodge(0.2)) +
+  #stat_compare_means(comparisons = my_comparisons, paired=T, method="wilcox.test")+
+  scale_y_continuous( expand = c(0, 0), breaks = scales::pretty_breaks(n = 5))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+# plotly::ggplotly(p)
+```
+```{r}
+ggsave(
+  "Arp3Actin_Coloc.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.

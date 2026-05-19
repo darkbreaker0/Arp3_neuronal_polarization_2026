@@ -1,0 +1,621 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+#library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+library(colorspace)
+library(ggpubr)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(Path_1)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+load(file=saved_path)
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+```
+
+# save environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+```
+
+# read csv files from the parent folder
+```{r}
+library(readr)  # For faster CSV reading
+library(dplyr)  # For easy data manipulation (optional)
+
+# Function to import all CSVs from a folder and its subfolders
+import_csv_files <- function(directory) {
+  # Get list of all CSV files in the folder and subfolders
+  csv_files <- list.files(directory, pattern = "\\measurements.csv$", full.names = TRUE, recursive = TRUE)
+  
+  # Read each file into a list of data frames
+  data_list <- lapply(csv_files, read_csv, show_col_types = FALSE)
+  
+  # Name the list elements with the corresponding file names (without the full path)
+  names(data_list) <- dirname(csv_files) %>% basename()
+  
+  return(data_list)
+}
+
+# Set the parent directory containing CSV files
+parent_directory <- Path_1 
+
+# Import all CSV files
+csv_data_list <- import_csv_files(parent_directory)
+```
+
+```{r}
+csv_data_list_1 <- csv_data_list[1:3] #20, 60, 40
+csv_data_list_2 <- csv_data_list[4:6] #20, 60, 60
+csv_data_list_3 <- csv_data_list[7:25] #20, 75, 40
+
+csv_1 <- reduce(csv_data_list_1,  left_join, by = '...1')
+csv_2 <- reduce(csv_data_list_2,  left_join, by = '...1')
+csv_3 <- reduce(csv_data_list_3,  left_join, by = '...1')
+```
+
+```{r}
+csv_1_norm <- sweep(                       # sweep “across” the chosen margin
+  as.matrix(csv_1[-1]),                        # ensure a matrix (for sweep)
+  MARGIN = 2,                          # 2 = columns
+  STATS  = colMeans(csv_1[-1], na.rm = TRUE),  # vector of column means
+  FUN    = "/"
+) %>% as.data.table()
+
+csv_2_norm <- sweep(                       # sweep “across” the chosen margin
+  as.matrix(csv_2[-1]),                        # ensure a matrix (for sweep)
+  MARGIN = 2,                          # 2 = columns
+  STATS  = colMeans(csv_2[-1], na.rm = TRUE),  # vector of column means
+  FUN    = "/"
+) %>% as.data.table()
+
+csv_3_norm <- sweep(                       # sweep “across” the chosen margin
+  as.matrix(csv_3[-1]),                        # ensure a matrix (for sweep)
+  MARGIN = 2,                          # 2 = columns
+  STATS  = colMeans(csv_3[-1], na.rm = TRUE),  # vector of column means
+  FUN    = "/"
+) %>% as.data.table()
+
+
+csv_1_norm$Period <- "Pre"
+csv_1_norm$Period [21:80] <- "Act"
+csv_1_norm$Period [81:120] <- "Post"
+
+csv_2_norm$Period  <- "Pre"
+csv_2_norm$Period [21:80] <- "Act"
+csv_2_norm$Period [81:140] <- "Post"
+
+csv_3_norm$Period  <- "Pre"
+csv_3_norm$Period [21:95] <- "Act"
+csv_3_norm$Period [96:155] <- "Post"
+
+csv_1_norm_long <- csv_1_norm %>% pivot_longer(!Period, names_to = "Cell", values_to = "Int")
+csv_2_norm_long <- csv_2_norm %>% pivot_longer(!Period, names_to = "Cell", values_to = "Int")
+csv_3_norm_long <- csv_3_norm %>% pivot_longer(!Period, names_to = "Cell", values_to = "Int")
+```
+
+```{r}
+csv_all_long <- rbind(csv_1_norm_long, csv_2_norm_long, csv_3_norm_long) %>% as.data.table()
+
+csv_all_long [, c("Batch", "Cell_num", "Roi") :=
+      tstrsplit(Cell, "_Cell|\\.tif_", perl = TRUE)]
+
+csv_all_long[, cell_tif := paste0("Cell_", Cell_num)][, Cell_num := NULL]
+
+csv_all_long[, img := sub("\\.tif.*$", "", Cell)]
+```
+
+```{r}
+csv_all_summary  <- csv_all_long %>% group_by(Cell, Period, Batch, cell_tif, Roi, img) %>% rstatix::get_summary_stats(Int) %>% as.data.table()
+```
+
+```{r}
+csv_all_summary_filtered <- csv_all_summary[!grepl("useless", Cell, ignore.case = TRUE)]
+csv_all_summary_filtered <- csv_all_summary_filtered [!grepl("soma", Cell, ignore.case = TRUE)]
+csv_all_summary_filtered[, rank := frank(-mean, ties.method = "first"), by = .(Period, img)] # give rank within Rois of each image during each event based on the max intensity
+```
+
+```{r}
+Act_summary <- csv_all_summary_filtered [Period == "Act" & rank == 1] # filter for rows with the highest intensity among the Rois of each image during activation window
+
+csv_all_summary_filtered <- csv_all_summary_filtered[Cell %in% Act_summary$Cell] # filter for Roi with highest int during activation
+
+
+csv_all_summary_filtered_wide <- csv_all_summary_filtered %>% pivot_wider(id_cols=c("Cell", "Batch", "cell_tif", "Roi", "img"), names_from = Period, values_from = mean) %>% as.data.table()
+
+csv_all_summary_filtered <- csv_all_summary_filtered_wide[Act>Pre] %>% pivot_longer(cols = c("Pre", "Act", "Post"), names_to = "Period", values_to = "Int")
+
+selected_cell <- csv_all_summary_filtered$img %>%  unique()
+```
+
+```{r}
+csv_all_summary_filtered <- csv_all_summary[!grepl("useless", Cell, ignore.case = TRUE)]
+csv_all_summary_filtered <- csv_all_summary_filtered [!grepl("soma", Cell, ignore.case = TRUE)]
+csv_all_summary_filtered[, rank := frank(-mean, ties.method = "first"), by = .(Period, img)] # give rank within Rois of each image during each event based on the max intensity
+```
+
+```{r}
+
+Act_summary <- csv_all_summary_filtered [Period == "Act" & rank == 2 & img %in% selected_cell] # filter for rows with the highest intensity among the Rois of each image during activation window
+
+csv_all_summary_filtered <- csv_all_summary_filtered[Cell %in% Act_summary$Cell] # filter for Roi with highest int during activation
+
+
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+my_comparisons <- csv_all_summary_filtered$Period %>% unique() %>% as.character() %>% combn(2, simplify = FALSE) 
+pj <- position_jitter(seed = 1, width = .1, height = 0)
+
+csv_all_summary_filtered %>% mutate(Period= factor(Period, levels=c("Pre", "Act", "Post")))  %>%
+
+ggplot(aes(x=Period, y=mean, fill=Period))+
+  #geom_point()
+  theme_classic()+
+ geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=0.8, scale = "width")  +
+ geom_boxplot(aes(), width=0.2, fill="white", outlier.colour = NA)+ 
+  
+ # geom_jitter(alpha=1, aes(color = period), position = position_jitterdodge(jitter.width=.1)) + 
+  
+ geom_point(position = pj) +
+  
+ geom_path(aes(group = img),alpha = 0.5, position = pj)+
+ stat_compare_means(comparisons = my_comparisons, test = "wilcox.test", paired=F)+
+
+# scale_y_continuous(expand = c(0, 0), limits = c(0.6, 1.5), breaks = scales::pretty_breaks(n = 5))+ 
+
+  theme_ipsum(grid = F, ticks = T) +
+ theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold"), axis.text.x = element_text(angle = 0)) #for centering the text 
+```
+
+
+
+```{r}
+ggsave(
+  "Pre_act_Post_1.pdf",
+  width = 9,
+  height = 6,
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r}
+csv_all_summary_filtered <- csv_all_summary[!grepl("useless", Cell, ignore.case = TRUE)]
+csv_all_summary_filtered <- csv_all_summary_filtered [!grepl("soma", Cell, ignore.case = TRUE)]
+#csv_all_summary_filtered[, rank := frank(-mean, ties.method = "first"), by = .(Period, img)] # give rank within Rois of each image during each event based on the max intensity
+```
+
+```{r}
+csv_all_summary_filtered_wide <- csv_all_summary_filtered %>% pivot_wider(id_cols=c("Cell", "Batch", "cell_tif", "Roi", "img"), names_from = Period, values_from = mean) %>% as.data.table()
+
+csv_all_summary_filtered_wide$Diff <- csv_all_summary_filtered_wide$Act -csv_all_summary_filtered_wide$Pre
+#csv_all_summary_filtered_wide[, rank := frank(-Diff, ties.method = "first"), by = .(img)] 
+
+csv_all_summary_filtered <- csv_all_summary_filtered_wide[Diff > 0] %>% pivot_longer(cols = c("Pre", "Act", "Post"), names_to = "Period", values_to = "Int") %>% as.data.table()
+selected_cell <- csv_all_summary_filtered$img %>%  unique()
+```
+
+```{r}
+csv_all_summary_filtered <- csv_all_summary[!grepl("useless", Cell, ignore.case = TRUE)]
+csv_all_summary_filtered <- csv_all_summary_filtered [!grepl("soma", Cell, ignore.case = TRUE)]
+#csv_all_summary_filtered[, rank := frank(-mean, ties.method = "first"), by = .(Period, img)] # give rank within Rois of each image during each event based on the max intensity
+```
+
+```{r}
+csv_all_summary_filtered_wide <- csv_all_summary_filtered [img %in% selected_cell] %>% 
+  pivot_wider(id_cols=c("Cell", "Batch", "cell_tif", "Roi", "img"), names_from = Period, values_from = mean) %>% 
+  as.data.table()# filter for rows with the highest intensity among the Rois of each image during activation window
+
+csv_all_summary_filtered_wide$Diff <- csv_all_summary_filtered_wide$Act -csv_all_summary_filtered_wide$Pre
+
+csv_all_summary_filtered <- csv_all_summary_filtered_wide[, rank := frank(-Diff, ties.method = "first"), by = .(img)]  %>% 
+  pivot_longer(cols = c("Pre", "Act", "Post"), names_to = "Period", values_to = "Int") %>% 
+  as.data.table()
+
+csv_all_summary_filtered$Cell %>% table()
+```
+
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+#my_comparisons <- csv_all_summary_filtered$Period %>% unique() %>% as.character() %>% combn(2, simplify = FALSE) 
+my_comparisons <- list(c("Pre", "Act"))
+
+
+pj <- position_jitter(seed = 1, width = .1, height = 0)
+
+csv_all_summary_filtered [rank ==3 & Period != "Post"] %>% mutate(Period= factor(Period, levels=c("Pre", "Act")))  %>%
+
+ggplot(aes(x=Period, y=Int, fill=Period))+
+  #geom_point()
+  theme_classic()+
+ geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=0.8, scale = "width")  +
+ geom_boxplot(aes(), width=0.2, fill="white", outlier.colour = NA)+ 
+  
+ # geom_jitter(alpha=1, aes(color = period), position = position_jitterdodge(jitter.width=.1)) + 
+  
+ geom_point(position = pj) +
+  
+ geom_path(aes(group = img),alpha = 0.5, position = pj)+
+ stat_compare_means(comparisons = my_comparisons, test = "wilcox.test", paired=T)+
+
+ scale_y_continuous(expand = c(0, 0), limits = c(0.4, 2), breaks = scales::pretty_breaks(n = 8))+ 
+
+  theme_ipsum(grid = F, ticks = T) +
+ theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold"), axis.text.x = element_text(angle = 0)) #for centering the text 
+```
+
+```{r}
+ggsave(
+  "Pre_act_Post_2.pdf",
+  width = 3,
+  height = 6,
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+my_comparisons <- csv_all_summary_filtered$rank %>% unique() %>% as.character() %>% combn(2, simplify = FALSE) 
+
+csv_all_summary_filtered$rank <- csv_all_summary_filtered$rank %>% as.factor()
+pj <- position_jitter(seed = 1, width = .1, height = 0)
+
+csv_all_summary_filtered [Period == "Act"] %>% 
+  mutate(rank= factor(rank, levels=c("1", "2", "3")))  %>% 
+  arrange(img, rank) %>%   
+
+ ggplot(aes(x=rank, y=Diff, fill=rank))+
+  #geom_point()
+  theme_classic()+
+ geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=0.8, scale = "width")  +
+ geom_boxplot(aes(), width=0.2, fill="white", outlier.colour = NA)+ 
+  
+ # geom_jitter(alpha=1, aes(color = period), position = position_jitterdodge(jitter.width=.1)) + 
+  
+ geom_point(position = pj) +
+  
+ geom_path(aes(group = img),alpha = 0.5, position = pj)+
+ stat_compare_means(comparisons = my_comparisons, test = "wilcox.test", paired=T)+
+
+ scale_y_continuous(expand = c(0, 0), limits = c(-0.8, 0.8), breaks = scales::pretty_breaks(n = 8))+ 
+
+  theme_ipsum(grid = F, ticks = T) +
+ theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold"), axis.text.x = element_text(angle = 0)) #for centering the text 
+
+#plotly::ggplotly(p)
+#csv_all_summary_filtered [Period == "Act"]$rank %>% table()
+```
+
+```{r}
+ggsave(
+  "Diff_GC_ordered.pdf",
+  width = 9,
+  height = 6,
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r}
+csv_all_summary_filtered [Period == "Act"] %>% 
+  mutate(rank= factor(rank, levels=c("1", "2", "3")))  %>% 
+  arrange(img, rank) %>% write_csv("Diff_GC_ordered.csv")
+```
+
+
+```{r}
+friedman_result <- csv_all_summary_filtered [Period == "Act"] %>% 
+  mutate(rank= factor(rank, levels=c("1", "2", "3")))  %>% 
+  arrange(img, rank) %>%   
+  rstatix::friedman_test(Diff ~ rank | img)
+
+posthoc <- csv_all_summary_filtered [Period == "Act"] %>% 
+  mutate(rank= factor(rank, levels=c("1", "2", "3")))  %>% 
+  arrange(img, rank) %>% 
+  rstatix::wilcox_test(
+    Diff ~ rank,
+    paired = TRUE,
+    p.adjust.method = "bonferroni"
+  )
+
+print(posthoc)
+```
+
+# Direct comparison of length difference before and after perfusion
+# compare the length change between DMSO and CK-666 (soma)
+```{r}
+df_summary_diff <- length_df %>% 
+  group_by(perfusion_compartment, exp, cell) %>%  
+  rstatix::get_summary_stats(Diff) %>% 
+  as.data.table()
+
+df_summary_diff_soma <- df_summary_diff[perfusion_compartment == "soma"]
+
+df_summary_diff_max <- df_summary_diff[max > 0]
+df_summary_diff_min <- df_summary_diff[min < 0]
+```
+
+
+# remove outliers
+```{r}
+outliers <- df_summary_diff_soma  %>% 
+  group_by(exp) %>% 
+ rstatix::identify_outliers(mean) 
+
+  df_summary_diff_soma <-  df_summary_diff_soma [! (cell %in% outliers$cell), ]
+  
+```
+
+```{r}
+outliers <-  df_summary_diff_max %>% 
+  group_by(exp) %>% 
+ rstatix::identify_outliers(max) 
+
+  df_summary_diff_max <-  df_summary_diff_max [! (cell %in% outliers$cell), ]
+  
+```
+
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+my_comparisons <- list(c("DMSO", "CK-666"))
+
+ df_summary_diff_soma %>% mutate(exp = factor(exp, levels=c("DMSO", "CK-666")))  %>%
+  
+ ggplot(aes(x=exp, y=mean, fill=exp)) + 
+  geom_violin(trim=FALSE, kernel ="gaussian", adjust=1)+
+  geom_boxplot(width=0.5, fill="white", outlier.shape = NA)  +
+  geom_point(aes(fill=exp, group=cell), position = position_jitter(0.1))+
+ # geom_line(aes(), position = position_dodge(0.05)) +
+  stat_compare_means(comparisons = my_comparisons, paired=F, method="t.test")+
+ #scale_y_continuous( expand = c(0, 0), limits = c(-25, 5), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+ #plotly::ggplotly(p)
+```
+```{r}
+ggsave(
+  "CK666_DMSO_soma_length.pdf",
+  plot = last_plot(),
+  device = "pdf")
+
+dev.off()
+```
+
+# split the soma data into perfused and non-perfused neurites based on neurite length
+```{r}
+length_df_soma <- length_df[perfusion_compartment == "soma"]
+
+length_df_soma$site <- "perfused"
+length_df_soma[`1_pre_perfusion` >50 ]$site <- "non-perfused"
+
+length_df_soma$group <- paste(length_df_soma$exp, length_df_soma$site, sep = "_")
+length_df_soma$cell_neurite <- paste(length_df_soma$cell, length_df_soma$neurite, sep = "_")
+
+length_df_soma_1 <- length_df_soma
+```
+
+# remove outliers
+```{r}
+outliers <- length_df_soma_1  %>% 
+  group_by(group) %>% 
+ rstatix::identify_outliers(mean) 
+
+length_df_soma_1 <-  length_df_soma_1[! (cell_neurite %in% outliers$cell_neurite), ]
+length_df_soma_1 <-  length_df_soma_1[! (cell %in% "Control_20250313_2_ext_ret"), ]
+
+length_df_soma_1$group %>% table()
+```
+
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+my_comparisons <- list(c("DMSO_perfused", "DMSO_non-perfused"), c("CK-666_perfused", "CK-666_non-perfused"), c("DMSO_perfused", "CK-666_perfused"), c("DMSO_non-perfused", "CK-666_non-perfused"))
+
+length_df_soma_1 %>% #mutate(exp = factor(exp, levels=c("DMSO", "CK-666")))  %>%
+  
+ ggplot(aes(x=group, y=Diff, fill=exp)) + 
+  geom_violin(trim=FALSE, kernel ="gaussian", adjust=1)+
+  geom_boxplot(width=0.5, fill="white", outlier.shape = NA)  +
+  geom_point(aes(fill=exp, group=cell), position = position_jitter(0.1))+
+ # geom_line(aes(), position = position_dodge(0.05)) +
+  stat_compare_means(comparisons = my_comparisons, paired=F, method="t.test")+
+scale_y_continuous( expand = c(0, 0), 
+                    limits = c(-50, 80), 
+                    breaks = scales::pretty_breaks(n = 8))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+ #plotly::ggplotly(p)
+```
+```{r}
+ggsave(
+  "CK666_DMSO_soma_length_50_neuriteLevel.pdf",
+  plot = last_plot(),
+  device = "pdf")
+
+#dev.off()
+```
+
+# analyze at cell level
+```{r}
+df_summary_diff_soma <- length_df_soma %>% 
+  group_by(exp, site, cell, group) %>%  
+  rstatix::get_summary_stats(Diff) %>% 
+  as.data.table()
+```
+
+# remove outliers
+```{r}
+outliers <- df_summary_diff_soma  %>% 
+  group_by(group) %>% 
+ rstatix::identify_outliers(mean) 
+
+  df_summary_diff_soma <-  df_summary_diff_soma [! (cell %in% outliers$cell), ]
+  
+df_summary_diff_soma$group %>% table()
+  
+```
+
+
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+my_comparisons <- list(c("DMSO_perfused", "DMSO_non-perfused"), c("CK-666_perfused", "CK-666_non-perfused"), c("DMSO_perfused", "CK-666_perfused"), c("DMSO_non-perfused", "CK-666_non-perfused"))
+
+ df_summary_diff_soma %>% #mutate(exp = factor(exp, levels=c("DMSO", "CK-666")))  %>%
+  
+ ggplot(aes(x=group, y=mean, fill=exp)) + 
+  geom_violin(trim=FALSE, kernel ="gaussian", adjust=1)+
+  geom_boxplot(width=0.5, fill="white", outlier.shape = NA)  +
+  geom_point(aes(fill=exp, group=cell), position = position_jitter(0.1))+
+ # geom_line(aes(), position = position_dodge(0.05)) +
+  stat_compare_means(comparisons = my_comparisons, paired=F, method="t.test")+
+ #scale_y_continuous( expand = c(0, 0), limits = c(-25, 5), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+ #plotly::ggplotly(p)
+```
+```{r}
+ggsave(
+  "CK666_DMSO_soma_length_50.pdf",
+  plot = last_plot(),
+  device = "pdf")
+
+dev.off()
+```
+
+# compare the length change between perfused and non-perfused neurite (GC), CK-666 vs DMSO
+```{r}
+ length_df_neurite <- length_df[perfusion_compartment == "neurite"]
+ length_df_neurite$perfusion <- "non-perfused" 
+ length_df_neurite[ grepl("Neurite_1",  length_df_neurite$neurite), ]$perfusion <- "perfused"
+ 
+ df_summary_diff <-  length_df_neurite %>% 
+  group_by(perfusion, cell, exp) %>%  
+  rstatix::get_summary_stats(Diff) %>% 
+  as.data.table()
+ 
+ df_summary_diff$group <- paste(df_summary_diff$exp, df_summary_diff$perfusion, sep = "_")
+```
+
+# remove outliers
+```{r}
+outliers <-  df_summary_diff %>% 
+  group_by(group) %>% 
+ rstatix::identify_outliers(mean) 
+
+df_summary_diff <-  df_summary_diff [! (cell %in% outliers$cell), ]
+  
+df_summary_diff$group %>% table()  
+  
+df_summary_diff %>% group_by(group) %>%  
+  rstatix::get_summary_stats(mean)
+
+```
+
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+my_comparisons <- list(c("CK-666_non-perfused", "CK-666_perfused"), c("DMSO_non-perfused", "DMSO_perfused"), c("CK-666_non-perfused", "DMSO_non-perfused"), c("CK-666_perfused", "DMSO_perfused"))
+
+  df_summary_diff %>% mutate(group = factor(group, levels=c("DMSO_non-perfused", "CK-666_non-perfused", "DMSO_perfused", "CK-666_perfused")))  %>%
+  
+ggplot(aes(x=group, y=mean, fill=perfusion)) + 
+  geom_violin(trim=FALSE, kernel ="gaussian", adjust=1) +
+  geom_boxplot(width=0.2, fill="white", outlier.shape = NA) +
+  geom_point(aes(fill=perfusion, group=cell), position = position_dodge(0.1)) +
+# geom_line(aes(group=cell), position = position_dodge(0.1)) +
+  stat_compare_means(comparisons = my_comparisons, paired=F, method="t.test") +
+ scale_y_continuous( expand = c(0, 0), 
+                     limits = c(-50, 40), 
+                     breaks = scales::pretty_breaks(n = 8))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+```
+
+```{r}
+ggsave(
+  "CK666_DMSO_neurite_length.pdf",
+  plot = last_plot(),
+  device = "pdf")
+
+#dev.off()
+```

@@ -1,0 +1,188 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+<!--
+## What this file does
+
+Loads two pre-computed time-series vectors from `data.RData`:
+
+- `GC_int` — per-frame Lifeact-mScarlet actin intensity at the
+  **growth cone / lamellipodium** ROI of Cell_6.
+- `soma_int` — per-frame Lifeact-mScarlet intensity at the **soma** ROI
+  of the same cell.
+
+The script then:
+
+1. Converts `Time` from frame index to seconds (`Time = Time * 10`,
+   reflecting a 10-s frame interval).
+2. Reshapes to long format with two `region` levels renamed
+   `Lamellipodium` (GC) and `Soma`.
+3. Plots both traces on the same axes, with **TWO cyan-shaded vertical
+   bands** marking the photoactivation periods (`x = 200–590` and
+   `800–1190` seconds — two sequential activations).
+4. Saves `soma_int.pdf` (static plot) and `two_groups.gif` (animated
+   "reveal" version via `gganimate::transition_reveal`).
+5. Re-saves `data.RData` (no analysis change; checkpoint convenience).
+
+The plot has NO statistical test — it is a single-cell representative
+trace, not a population-level comparison.
+
+## Manuscript panel mapping
+
+This file feeds **ED Fig 5h** ONLY.
+
+- **ED Fig 5h** (line 353 of docx): **"Temporal profiles of actin
+  intensity at the soma and at the lamellipodia. The blue shade marks
+  the activation periods."** ← EXACT MATCH to this file's body output:
+  two-channel time-course plot of GC vs soma actin intensity with
+  cyan/blue-shaded activation bands. Confirmed primary published
+  source.
+
+## Source Data
+
+ED Fig 5h's Source Data sheet contains the per-frame `Time`,
+`GC_int`, `soma_int` columns for the representative cell. This file's
+output `soma_int.pdf` and the underlying long-format dataframe `df_long`
+are the published data.
+
+## Note: the original `Cell_6_PatchWaveConvert` working folder name
+
+The original G:\ source path is:
+``G:\Figure 3_Arp3\Fig. 3j-n_PARac1\Andor\PARac1\210128_PARac1_LASiR_Myl12amScar\Cell_6_PatchWaveConvert\Neurite activity corr.Rmd``.
+The folder name `Cell_6_PatchWaveConvert` and the file name
+`Neurite activity corr.Rmd` together imply that Cell_6 was identified
+during analysis as the cell whose actin patch → wave conversion was
+clearest, and was chosen as the representative for ED Fig 5h. This is
+why the file operates on a single cell, not a population.
+
+## Original G:\ source
+
+G:/Figure 3_Arp3/Fig. 3j-n_PARac1/Andor/PARac1/210128_PARac1_LASiR_Myl12amScar/Cell_6_PatchWaveConvert/Neurite activity corr.Rmd
+-->
+
+## Package installation
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(Path_1)
+saved_path <- paste(Path_1, "data.RData",  sep = "/")
+load(file=saved_path)
+
+```
+
+```{r}
+colnames(GC_int) <- c("Time", "GC_int")
+colnames(soma_int) <- c("Time", "soma_int")
+
+df <- cbind(GC_int, soma_int$soma_int)
+colnames(df)[3]<- "soma_int"
+
+ df$Time <- df$Time*10
+ 
+ df_long <- df %>% pivot_longer(cols = c("GC_int", "soma_int"), names_to = "region", values_to = "int") %>% as.data.table()
+  df_long$int <-  df_long$int/10
+  
+  df_long[region == "GC_int"]$region <- "Lamellipodium"
+  df_long[region == "soma_int"]$region <- "Soma"
+```
+
+```{r}
+fmt_mmss <- function(s) {
+  s <- as.integer(round(s))
+  sprintf("%02d:%02d", s %/% 60, s %% 60)
+}
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=8}
+p <- df_long %>% 
+ggplot(aes(x=Time, y=int,color = region)) +
+ # geom_rect(aes(xmin=200, xmax=590, ymin=-Inf, ymax=Inf), fill  = "cyan",  colour = NA) +
+#  geom_rect(aes(xmin=800, xmax=1190, ymin=-Inf, ymax=Inf), fill  = "cyan",  colour = NA) +
+   #geom_ribbon(aes(ymin=mean-sd, ymax=mean+sd), fill="lightgrey")+
+   geom_line(size=1.5, alpha=1) +
+  
+  #stat_peaks(colour = "red", span = 21, ignore_threshold = 0.8) +
+  #stat_peaks(geom = "text", colour = "red", span = 21, ignore_threshold = 0.8, hjust = 2, angle = 0) +
+  #stat_valleys(colour = "lightblue", span = 21, ignore_threshold = 1) +
+  #stat_valleys(geom = "text", colour = "blue", span = 21, ignore_threshold = 1, hjust = -0.5, angle = 0) +
+  
+   annotate("rect",
+           xmin = 200, xmax = 590, ymin = -Inf, ymax = Inf,
+           fill = "cyan", alpha = 0.25, colour = NA) +
+  
+  annotate("rect",
+           xmin = 800, xmax = 1190, ymin = -Inf, ymax = Inf,
+           fill = "cyan", alpha = 0.25, colour = NA) +
+  
+  scale_y_continuous( breaks = scales::pretty_breaks(n = 6), name = "Intensity (a.u.)")+
+  scale_x_continuous(expand = c(0, 0),  labels = fmt_mmss, breaks = scales::pretty_breaks(n = 7), name = "Time (mm:ss)") +
+
+  theme_ipsum(grid = F, ticks = T)+ 
+  theme_linedraw()+
+  scale_colour_manual(
+  values = c(Lamellipodium = "black", Soma = "grey"),  # name groups exactly as in df$group
+  name = "Region"                             # legend title (optional)
+)+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.title.x = element_text(size = 16),  # x-axis label
+    axis.title.y = element_text(size = 16),  # y-axis label
+        legend.position = c(0.85, 0.85),
+     legend.box.background = element_rect(colour = "black", fill = "white", linewidth = 0.6),
+    legend.box.margin     = margin(3, 3, 3, 3), 
+    legend.title = element_text(size = 12),
+    legend.text  = element_text(size = 12), 
+        axis.text=element_text(size=16)) #for centering the text
+```
+
+```{r}
+library(gganimate)
+p_anim <- p + transition_reveal(along = Time)
+
+anim <- animate(p_anim, fps = 10,  width = 500, height = 600,
+                renderer = gifski_renderer())
+anim_save("two_groups.gif", anim)
+```
+
+```{r}
+ggsave(
+  "soma_int.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "data.RData",  sep = "/")
+save.image(file=saved_path)
+
+```

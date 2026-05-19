@@ -1,0 +1,148 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+## Package installation
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+load(file=saved_path)
+
+```
+
+## Read .csv files
+```{r}
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+
+csv_list <- list.files(subfolder_list[1],pattern = "(.*)csv$", 
+                     recursive = F,  #list of subfolders and files within the subfolders
+                     include.dirs = F, # Should subdirectory names be included 
+                     full.name = TRUE)  #get the full name (path and file name) of each file
+
+df_list<- list()
+
+for (n in 1:length(csv_list)) 
+{
+  df<- readr::read_delim(csv_list[n], ",", escape_double = FALSE, col_names = T, trim_ws = TRUE, show_col_types = FALSE)
+  df$Cell<- n
+  df$Time<-(0:(nrow(df)-1))*10
+  df_list[[n]] <- df%>% as.data.frame()
+ 
+}
+
+df_1 <- df_list[[1]]
+
+for (n in 2:length(df_list)) 
+{
+  df_1 <- rbind(df_1, df_list[[n]])
+          
+}
+
+colnames(df_1)[4]<- "avgSize"
+
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+
+df_summary <- df_1_removed %>% group_by(Time) %>% rstatix::get_summary_stats(Count)
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+ggplot(df_summary, aes(x=Time, y=mean)) +
+  
+   geom_ribbon(aes(ymin=mean-se, ymax=mean+se), fill="lightgrey", alpha=1)+
+   geom_line(size=1, alpha=1) +
+  
+  theme_ipsum(grid = F, ticks = T)+ 
+   #geom_vline(xintercept=0, linetype="dashed", color = "black")+
+  #geom_hline(yintercept=0, linetype="dashed", color = "black")+
+   scale_y_continuous( expand = c(0, 0), limits = c(0, 95), breaks = scales::pretty_breaks(n = 7))+
+  scale_x_continuous(expand = c(0, 0), limits = c(0, 220), breaks = scales::pretty_breaks(n = 8)) + 
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+
+```
+```{r}
+ggsave(
+  "MRLC_num.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+
+df_summary <- df_1_removed %>% group_by(Time) %>% rstatix::get_summary_stats(avgSize)
+```
+
+```{r  message = FALSE, warning=FALSE, fig.width=10}
+ggplot(df_summary, aes(x=Time, y=mean)) +
+  
+   geom_ribbon(aes(ymin=mean-se, ymax=mean+se), fill="lightgrey", alpha=1)+
+   geom_line(size=1, alpha=1) +
+  
+  theme_ipsum(grid = F, ticks = T)+ 
+   #geom_vline(xintercept=0, linetype="dashed", color = "black")+
+  #geom_hline(yintercept=0, linetype="dashed", color = "black")+
+   scale_y_continuous( expand = c(0, 0), limits = c(0.2, 0.4),breaks = scales::pretty_breaks(n = 7))+
+  scale_x_continuous(expand = c(0, 0), limits = c(0, 220), breaks = scales::pretty_breaks(n = 8)) + 
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text=element_text(size=12, face="bold")) #for centering the text
+
+```
+
+```{r}
+ggsave(
+  "MRLC_size.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "df_list.RData",  sep = "/")
+save.image(file=saved_path)
+
+```

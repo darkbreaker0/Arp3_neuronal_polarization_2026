@@ -1,0 +1,74 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+<!--
+================================================================================
+parac1_file_sorting.Rmd
+================================================================================
+
+# Helper utility: PA-Rac1-specific file sorting variant.
+# Same body shape as helpers/file_sorting.Rmd but specialized for the
+# PA-Rac1 imaging batches (different filename pattern).
+
+## What this file does
+
+Same per-cell subfolder sorting as ``file_sorting.Rmd`` but reads the
+PA-Rac1 imaging filenames (which use the ``paRac1_mVenus`` /
+``200730_TC_proto*`` naming convention). The file-pattern regex is
+adjusted accordingly.
+
+## Manuscript panel
+
+**None — utility helper.** Like its sibling ``file_sorting.Rmd``, this
+file is the pre-analysis sort step that runs once per imaging dataset
+to organize TIFF files into per-cell subfolders.
+
+## Why it lives in helpers/
+
+The PA-Rac1 datasets use a different filename convention from the
+Lifeact / actin radial flow datasets, so a slightly customized
+sorting helper was needed. Kept here as a sibling utility.
+
+## Beginner notes
+
+Knit-time destructive of the working directory (physically moves
+TIFF files). Run only on a fresh PA-Rac1 imaging directory that needs
+to be sorted.
+
+## Original G:\ source
+
+G:/Figure 3_Arp3/Fig. 3j-n_PARac1/Andor/PARac1/201215_paRac1_mVenus/200730_TC_proto20201215_174813_20201216_182439/sorting.Rmd
+
+================================================================================
+-->
+
+```{r}
+library(filesstrings)
+
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+
+file_list <- list.files(path =Path_1, full.names = TRUE, recursive = TRUE)
+file_list <- file_list [ grepl("tif", file_list) ]
+file_list_df <- file_list %>% as.data.frame()
+for (n in 1:25){
+  
+  newfolder <- paste("Cell_", formatC(n, width=2, flag="0"), sep = "")
+  dir.create(newfolder)
+  
+}
+
+subfolder_list <- list.dirs(path =Path_1, full.names = TRUE, recursive = TRUE)
+subfolder_list  <- subfolder_list [ grepl("Cell", subfolder_list) ]
+
+file_list_df$path<- subfolder_list
+
+for (n in 1:length(file_list)){
+ 
+  file.move(file_list[n], file_list_df$path[n])
+  
+}
+
+```
+

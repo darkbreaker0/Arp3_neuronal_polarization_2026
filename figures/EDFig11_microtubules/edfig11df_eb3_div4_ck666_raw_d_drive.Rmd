@@ -1,0 +1,35 @@
+---
+title: "ED Fig 11d-f - EB3 length under CK-666 (DIV-4, raw images)"
+author: "Lin et al., Nature 2026 (Bradke lab, DZNE)"
+output: html_notebook
+params:
+  div: 4
+  image_pipeline: "raw"
+  summary_variable: "growth_speed_median"
+  pdf_name: "EB3_length.eps"
+  d_drive_source: "D:\\DVElite\\CK666_LA_EB3\\240226_DIV4_EB3\\ck666\\raw\\read_stat.Rmd"
+---
+
+<!--
+================================================================================
+  Wrapper for ED Fig 11d-f, batch: DIV-4 + raw (non-deconvolved) images.
+================================================================================
+  Includes canonical template at:
+      ../../templates/edfig11df_eb3_length_under_ck666.Rmd
+
+  Parameters supplied above:
+    - div = 4                              -> DIV-4 stage
+    - image_pipeline = "raw"               -> str_extract uses "(?<=raw/)..."
+    - summary_variable = "growth_speed_median"
+    - pdf_name = "EB3_length.eps"
+    - d_drive_source                       -> D:\ provenance
+
+  Original 255-line monolithic wrapper extracted into a canonical template
+  on 2026-05-12. See ``templates/edfig11df_eb3_length_under_ck666.Rmd``.
+
+  Essentiality: Replicate-QC. Canonical:
+                edfig11f_eb3_tip_integrated_intensity.Rmd.
+-->
+
+```{r child = "../../templates/edfig11df_eb3_length_under_ck666.Rmd"}
+```

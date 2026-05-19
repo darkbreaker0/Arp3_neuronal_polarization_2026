@@ -1,0 +1,33 @@
+---
+title: "Fig 4m - Arp3 KO line profile, NMIIb-focus variant"
+output: html_notebook
+params:
+  genotype: "Arp3KO"
+  final_plot_channel: "Ch2"
+  pdf_name: "Actin_profile.pdf"
+  write_csvs: FALSE
+---
+
+<!--
+================================================================================
+  Wrapper for Fig 4m, Arp3 KO genotype, "NMIIb focus" variant.
+================================================================================
+  Includes the canonical template at:
+      ../../templates/fig04m_line_profile_coloc.Rmd
+
+  Parameters supplied above:
+    - genotype = "Arp3KO"              -> Ch2 (actin) NA cutoff = 25
+                                          CSV prefix would be "Arp3KO"
+                                          (CSVs not emitted; see write_csvs)
+    - final_plot_channel = "Ch2"       -> final ribbon plot is df_summary2
+                                          (actin profile)
+    - pdf_name = "Actin_profile.pdf"   -> ggsave filename for the panel.
+    - write_csvs = FALSE               -> only the panel PDF is emitted;
+                                          per-cell CSVs are SKIPPED.
+
+  Original 241-line monolithic wrapper extracted into a template on
+  2026-05-12.
+-->
+
+```{r child = "../../templates/fig04m_line_profile_coloc.Rmd"}
+```

@@ -1,0 +1,103 @@
+---
+title: "Fig 3n + ED Fig 5b - PA-Rac1 T17N precursor (Pre/Act/Post)"
+output: html_notebook
+params:
+  variant: "T17N"
+  pdf_name: "T17N_length.eps"
+  length_y_limit: !r c(-20, 30)
+---
+
+<!--
+================================================================================
+  STAGE-1 PRECURSOR wrapper for Fig 3n + ED Fig 5b, PA-Rac1 T17N variant
+  (dominant-negative Rac1 — blocks endogenous Rac1 signaling).
+================================================================================
+  Variant-specific data loading happens HERE; the deterministic
+  pivot / save / plot pipeline is delegated to:
+      ../../templates/fig03n_parac1_precursor.Rmd
+
+  Body N = 20 ROIs. Published Fig 3n N = 20 (exact match). ED Fig 5b
+  reports N = 18 (2 outliers removed in the downstream consolidator).
+
+  Pipeline -> downstream consolidator
+      figures/Fig03_Arp3/fig03n_parac1_gc_soma_length.Rmd
+  which reads:
+      T17N_actin_int.rds  (produced here)
+      T17N_length.rds     (produced here)
+
+  NB: this wrapper is the SIMPLEST of the 3 PA-Rac1 precursors because
+  `neurite_length` (the wrapper-built single source) carries BOTH the
+  length and the actin-mean ("Mean") columns. KO and C450M needed to
+  combine multiple tables; T17N's RData is already single-table.
+
+  Essentiality: Essential. Pairs with the KO and C450M sibling precursors.
+
+  Original 170-line monolithic wrapper refactored 2026-05-12: variant-
+  specific RData load + single-table pivot kept inline; the generic
+  pivot/save/plot pipeline moved to the canonical template.
+  Original G:\ source: G:/Figure 3_Arp3/Fig. 3j-n_PARac1/Andor/PARac1_T17N/Neurite_length.Rmd
+-->
+
+## Step 1: libraries + load saved environment
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(viridis)
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "T17N_length.RData", sep = "/")
+load(file = saved_path)
+```
+
+## Step 2: `length_input` is the loaded `neurite_length` (already long-format)
+
+For the T17N RData, `neurite_length` has columns `roi`, `Image`, `Site`,
+`exp`, `Series`, `Length`, `Mean` — i.e., both length and actin
+intensity in one table. The wrapper just aliases it; the template will
+pivot from `length_input` for the length panel and from `actin_input`
+for the intensity panel.
+
+```{r}
+length_input <- neurite_length
+```
+
+## Step 3: `actin_input` uses the same single source
+
+The Series + Mean columns of `neurite_length` ARE the per-ROI Pre/Act/Post
+actin-intensity table. We rename `Mean` -> `Mean` (already correct) and
+pass through.
+
+```{r}
+actin_input <- neurite_length
+```
+
+## Step 4: include canonical pivot/save/plot template
+
+```{r child = "../../templates/fig03n_parac1_precursor.Rmd"}
+```
+
+## Step 5: persist working environment
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "T17N_length.RData", sep = "/")
+save.image(file = saved_path)
+```

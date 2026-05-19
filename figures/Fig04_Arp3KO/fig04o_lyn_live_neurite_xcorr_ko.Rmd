@@ -1,0 +1,36 @@
+---
+title: "Fig 4o - brightfield neurite-xcorr (Arp3 KO genotype)"
+output: html_notebook
+params:
+  genotype: "KO"
+  pixel: 0.1081075
+  freq: 0.8
+  cell_range_start: 10
+  cell_range_end: 18
+  cell_prefix: "Cell"
+---
+
+<!--
+================================================================================
+  WRAPPER for Fig 4o, Arp3 KO genotype.
+================================================================================
+  Includes the canonical CCF template at:
+      ../../templates/fig04o_lyn_live_neurite_xcorr.Rmd
+
+  Parameters supplied above:
+    - genotype = "KO"        Metadata label (Arp3 KO)
+    - pixel = 0.1081075      pixel-to-um calibration for this imaging session
+    - freq = 0.8 Hz          imaging frame frequency
+    - cell_range = 10..18    cell indices for the KO cohort (9 cells)
+    - cell_prefix = "Cell"   KO used non-underscore folder names
+
+  Original 2045-line monolithic wrapper refactored 2026-05-12: served
+  as the canonical-template basis (chosen over WT because KO lacked the
+  bioimagetools tutorial deadwood). 5 real per-genotype differences
+  replaced with `params$...` references.
+
+  Essentiality: Essential. Pairs with fig04o_lyn_live_neurite_xcorr_wt.Rmd.
+-->
+
+```{r child = "../../templates/fig04o_lyn_live_neurite_xcorr.Rmd"}
+```

@@ -1,0 +1,403 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+<!--
+# CONSOLIDATOR (STAGE-2) for Fig 3n + ED Fig 5b — multi-condition
+# Welch t-test comparing PA-Rac1 activation effects across 5 conditions
+# (WT GC, WT Soma, Arp3 KO, PA-Rac1-C450M, PA-Rac1-T17N).
+
+## What this file does
+
+This is the **STAGE-2 CONSOLIDATOR**. It loads its own WT (GC + soma)
+data from ``WT_length.RData``, then ``readRDS()``s three sibling
+precursor outputs (lines 221-229):
+
+| .rds loaded | Produced by (STAGE-1 precursor) |
+|---|---|
+| ``KO_actin_int.rds``, ``KO_length.rds`` | ``figures/Fig03_Arp3/edfig05b_fig03n_parac1_arp3ko_pre_act_post_precursor.Rmd`` |
+| ``T17N_actin_int.rds``, ``T17N_length.rds`` | ``figures/Fig03_Arp3/edfig05b_fig03n_parac1_t17n_pre_act_post_precursor.Rmd`` |
+| ``C450M_actin_int.rds``, ``C450M_length.rds`` | ``figures/Fig03_Arp3/edfig05b_fig03n_parac1_c450m_pre_act_post_precursor.Rmd`` |
+
+Then ``rbind()``s 5 condition dataframes (WT_GC, WT_Soma, KO,
+C450M, T17N) for both length and actin intensity (lines 231-234), and
+plots multi-pairwise Welch t-tests with ``stat_compare_means(method =
+"t.test", paired = F)`` (lines 275, 327).
+
+Outputs:
+- ``Actin_intensity.pdf`` (line 289) — multi-condition actin intensity
+  difference (Pre vs Act) → **ED Fig 5b**.
+- ``Length.pdf`` (line 341) — multi-condition length difference → **Fig 3n**.
+- ``PARac1WT_soma_actinInt.eps`` (lines 380, 387 — duplicate save)
+  — PA-Rac1 WT soma-only Pre vs Act actin intensity with paired
+  Wilcoxon. UNCERTAIN — possibly a Fig 3m supporting plot or a
+  diagnostic version.
+
+## Manuscript panels
+
+- **Fig 3n** (line 117 of ``Arp3_manuscript 20260501.docx``): "Length
+  difference induced by the activation of PA-Rac1 and the variants.
+  For PA-Rac1 in WT neurons, N = 31 activation events at the growth
+  cone and 22 activation events at the soma from 4 experiments; for
+  PA-Rac1T17N in WT neurons, N = 20 activation events; for
+  PA-Rac1C450M in WT neurons, N = 57 activation events; for PA-Rac1
+  in Arp3 KO neurons, N = 40 activation events from 3 experiments.
+  *p < 0.05; ns by **Kruskal-Wallis test followed by Dunn's post-hoc
+  test with Bonferroni correction**."
+- **ED Fig 5b** (line 347): "Actin intensity difference induced by the
+  activation of PA-Rac1 and the variants. ... Two-tailed
+  **Kruskal-Wallis test followed by Dunn's post-hoc with Bonferroni**."
+
+## Algorithm
+
+The body uses **Welch t-test** in pairwise comparisons. The manuscript
+reports **Kruskal-Wallis + Dunn's post-hoc**. The published p-values
+were recomputed in GraphPad Prism. This file's role is to produce the
+per-event normalized Pre/Act/Post difference values that feed Source
+Data; the inline t-test is informal.
+
+## Per-condition N counts (body vs published)
+
+| Condition | Body N (approx) | Published Fig 3n N | Published ED Fig 5b N |
+|---|---|---|---|
+| PA-Rac1 WT GC | 32 + 13 (LSM980 rbind) - 3 removed ≈ 42 | 31 | 27 |
+| PA-Rac1 WT Soma | 22 | 22 | 21 |
+| PA-Rac1 in Arp3 KO | 45 (KO_length.rds) | 40 | 40 |
+| PA-Rac1 C450M | 58 (C450M_length.rds) | 57 | 21 |
+| PA-Rac1 T17N | 20 (T17N_length.rds) | 20 | 18 |
+
+Body Ns ≥ published Ns; outlier filtering on lines 249, 301
+(``Diff < 350 & > -150`` and ``Diff < 30 & > -25``) trims the published
+Ns. C450M N=57 (Fig 3n) vs N=21 (ED Fig 5b) — different metrics likely
+use different filtering thresholds.
+
+## Original G:\ source
+
+G:/Figure 3_Arp3/Fig. 3j-n_PARac1/Andor/R_scripts/Neurite_length/Neurite_length.Rmd
+-->
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(pracma)
+library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+library("pheatmap")
+library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(data.table)
+library(superheat)
+library(ggpubr)
+```
+
+## load existing/saved environment (.RData)
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "WT_length.RData",  sep = "/")
+load(file=saved_path)
+```
+
+# Neurite length and actin intensity change by GC activation
+```{r}
+GC_length<- rbind(GC_neurite_length, GC_neurite_length_2)
+
+GC_length$Series<- c("Pre", "Act", "Post")
+
+GC_length$roi <- rep(1:32, each=3)
+
+GC_length$Length <- GC_length$Length*0.222222
+```
+
+```{r}
+GC_neurite_length_LSM980$Series<- c("Pre", "Act", "Post")
+
+GC_neurite_length_LSM980$roi <- rep(1:13, each=3)
+
+GC_length<- rbind(GC_length, GC_neurite_length_LSM980)
+```
+
+```{r}
+GC_length_2<- GC_length[-c(73:75), ]
+GC_length_2$Image <- GC_length_2$Label %>% str_remove("\\.tif:.*")
+GC_length_2$Site <- "GC"
+GC_length_2$exp <- "WT_PA_Rac1_WT"
+```
+
+# Length
+```{r}
+GC_length_wide<- pivot_wider(GC_length_2, id_cols = c("roi", "Image", "Site", "exp"), names_from = "Series", values_from = "Length") # Value_from = Length for neurite length or Mean for actin int
+GC_length_wide$Diff<- GC_length_wide$Act - GC_length_wide$Pre
+GC_length_wide$mean<- rowMeans(GC_length_wide[,c("Pre", "Act", "Post")])
+
+GC_length_wide$Pre <- GC_length_wide$Pre - GC_length_wide$mean
+GC_length_wide$Act <- GC_length_wide$Act - GC_length_wide$mean
+GC_length_wide$Post <- GC_length_wide$Post - GC_length_wide$mean
+
+#saveRDS(GC_length_wide, file="Control_GC_neuriteLength.rds")
+
+GC_length_long<- pivot_longer(GC_length_wide, cols=c("Pre", "Act", "Post"), names_to = "Series", values_to="Length")
+
+GC_length_long$Series <- factor(GC_length_long$Series, levels=unique(GC_length_long$Series))
+```
+
+# Actin intensity
+```{r}
+GC_Int_wide<- pivot_wider(GC_length_2, id_cols = c("roi", "Image", "Site", "exp"), names_from = "Series", values_from = "Mean") # Value_from = Length for neurite length or Mean for actin int
+GC_Int_wide$Diff<- GC_Int_wide$Act - GC_Int_wide$Pre
+GC_Int_wide$mean<- rowMeans(GC_Int_wide[,c("Pre", "Act", "Post")])
+
+GC_Int_wide$Pre <- GC_Int_wide$Pre - GC_Int_wide$mean
+GC_Int_wide$Act <- GC_Int_wide$Act - GC_Int_wide$mean
+GC_Int_wide$Post <- GC_Int_wide$Post - GC_Int_wide$mean
+
+#saveRDS(GC_Int_wide, file="Control_GC_neuriteLength.rds")
+
+GC_Int_long<- pivot_longer(GC_Int_wide, cols=c("Pre", "Act", "Post"), names_to = "Series", values_to="Actin_int")
+
+GC_Int_long$Series <- factor(GC_Int_long$Series, levels=unique(GC_Int_long$Series))
+```
+
+# new analysis (GC?)
+
+# Length (the measurment does not make sense; don't use)
+
+# Actin intensity
+
+# Neurite length and actin intensity change by soma activation
+```{r}
+soma_length <- soma_length
+soma_length$Series<- c("Pre", "Act", "Post")
+soma_length$roi <- rep(1:22, each=3)
+soma_length$Length <- soma_length$Length*0.222222
+
+soma_length$Image <- soma_length$Label %>% str_remove("\\.tif:.*")
+soma_length$Site <- "Soma"
+soma_length$exp <- "WT_PA_Rac1_WT"
+```
+
+# Length
+```{r}
+soma_length_wide<- pivot_wider(soma_length, id_cols = c("roi", "Image", "Site", "exp"), names_from = "Series", values_from = "Length") # Value_from = Length for neurite length or Mean for actin int
+soma_length_wide$Diff<- soma_length_wide$Act - soma_length_wide$Pre
+soma_length_wide$mean<- rowMeans(soma_length_wide[,c("Pre", "Act", "Post")])
+
+soma_length_wide$Pre <- soma_length_wide$Pre - soma_length_wide$mean
+soma_length_wide$Act <- soma_length_wide$Act - soma_length_wide$mean
+soma_length_wide$Post <- soma_length_wide$Post - soma_length_wide$mean
+
+#saveRDS(soma_length_wide, file="Control_soma_neuriteLength.rds")
+
+soma_length_long<- pivot_longer(soma_length_wide, cols=c("Pre", "Act", "Post"), names_to = "Series", values_to="Length")
+
+soma_length_long$Series <- factor(soma_length_long$Series, levels=unique(soma_length_long$Series))
+
+```
+
+# Actin intensity
+```{r}
+soma_Int_wide<- pivot_wider(soma_length, id_cols = c("roi", "Image", "Site", "exp"), names_from = "Series", values_from = "Mean") # Value_from = Length for neurite length or Mean for actin int
+soma_Int_wide$Diff<- soma_Int_wide$Act - soma_Int_wide$Pre
+soma_Int_wide$mean<- rowMeans(soma_Int_wide[,c("Pre", "Act", "Post")])
+
+soma_Int_wide$Pre <- soma_Int_wide$Pre - soma_Int_wide$mean
+soma_Int_wide$Act <- soma_Int_wide$Act - soma_Int_wide$mean
+soma_Int_wide$Post <- soma_Int_wide$Post - soma_Int_wide$mean
+
+#saveRDS(soma_Int_wide, file="Control_soma_neuriteLength.rds")
+
+soma_Int_long<- pivot_longer(soma_Int_wide, cols=c("Pre", "Act", "Post"), names_to = "Series", values_to="Actin_int")
+
+soma_Int_long$Series <- factor(soma_Int_long$Series, levels=unique(soma_Int_long$Series))
+
+```
+
+```{r}
+KO_actin_int_df <- readRDS("KO_actin_int.rds")
+colnames(KO_actin_int_df)[8] <- "Actin_int"
+
+C450M_actin_int_df <- readRDS("C450M_actin_int.rds")
+T17N_actin_int_df <- readRDS("T17N_actin_int.rds")
+
+KO_length_df <- readRDS("KO_length.rds")
+C450M_length_df <- readRDS("C450M_length.rds")
+T17N_length_df <- readRDS("T17N_length.rds")
+
+actin_int_df <- rbind (GC_Int_long, soma_Int_long, KO_actin_int_df, C450M_actin_int_df, T17N_actin_int_df)  %>% as.data.table()
+actin_int_df$group <- paste(actin_int_df$exp , actin_int_df$Site, sep="_")
+
+length_df <- rbind (GC_length_long, soma_length_long, KO_length_df, C450M_length_df, T17N_length_df) %>% as.data.table()
+length_df$group <- paste (length_df$exp, length_df$Site, sep = "_" )
+
+actin_int_df$ID <- paste(actin_int_df$Image, actin_int_df$group)
+length_df$ID <- paste(length_df$Image, length_df$group)
+
+```
+
+```{r}
+
+actin_int_df_2<- actin_int_df[Series == "Act"]
+
+# outliers <- actin_int_df_2 %>% group_by(group) %>% rstatix::identify_outliers(mean) 
+# actin_int_df_2 <- actin_int_df_2[! (ID %in% outliers$ID)]
+
+actin_int_df_2 <- actin_int_df_2 [Diff <350 & Diff > -150]
+
+actin_int_df_2$group %>% table()
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+ my_comparisons <- list(c("WT_PA_Rac1_WT_GC", "WT_PA_Rac1_WT_Soma"), c("KO_PA_Rac1_WT_NA", "WT_PA_Rac1_C450M_GC"), c("KO_PA_Rac1_WT_NA", "WT_PA_Rac1_WT_GC"), c("WT_PA_Rac1_C450M_GC", "WT_PA_Rac1_WT_GC"), c("KO_PA_Rac1_WT_NA", "WT_PA_Rac1_WT_Soma"), c("WT_PA_Rac1_C450M_GC", "WT_PA_Rac1_WT_Soma"), c("KO_PA_Rac1_WT_NA", "WT_PA_Rac1_T17N_GC"), c("WT_PA_Rac1_C450M_GC", "WT_PA_Rac1_T17N_GC"))
+pj <- position_jitter(seed = 1, width = .05, height = 0)
+
+actin_int_df_2  %>% 
+  
+ggplot ( aes(x=group, y=Diff, fill=group) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, outlier.colour = NA, fill="white")+ 
+
+#geom_jitter(aes(), shape=16, position=position_jitter(0.1))+ #aes(color = batch)
+   geom_point(aes(fill=group), position = pj)+ 
+  
+# geom_line(aes(group=cell), position = pj, alpha = 0.2) +
+# geom_path(aes(group = cell),alpha = 0.2)+
+    
+ scale_y_continuous(expand = c(0, 0), 
+                    limits = c(-300, 700), 
+                    breaks = scales::pretty_breaks(n = 8))+ 
+stat_compare_means(comparisons = my_comparisons, paired=F, method="t.test") +
+
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold", angle = 0)) #for centering the text 
+```
+
+```{r}
+ggsave(
+  "Actin_intensity.pdf",
+   width=14, height=7, 
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r}
+length_df_2<- length_df[Series == "Act"]
+
+# outliers <- actin_int_df_2 %>% group_by(group) %>% rstatix::identify_outliers(mean) 
+# actin_int_df_2 <- actin_int_df_2[! (ID %in% outliers$ID)]
+
+length_df_2 <- length_df_2 [Diff <30 & Diff > -25]
+
+length_df_2$group %>% table()
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=10}
+ my_comparisons <- list(c("WT_PA_Rac1_WT_GC", "WT_PA_Rac1_WT_Soma"), c("KO_PA_Rac1_WT_NA", "WT_PA_Rac1_C450M_GC"), c("KO_PA_Rac1_WT_NA", "WT_PA_Rac1_WT_GC"), c("WT_PA_Rac1_C450M_GC", "WT_PA_Rac1_WT_GC"), c("KO_PA_Rac1_WT_NA", "WT_PA_Rac1_WT_Soma"), c("WT_PA_Rac1_C450M_GC", "WT_PA_Rac1_WT_Soma"), c("KO_PA_Rac1_WT_NA", "WT_PA_Rac1_T17N_GC"), c("WT_PA_Rac1_C450M_GC", "WT_PA_Rac1_T17N_GC"))
+pj <- position_jitter(seed = 1, width = .05, height = 0)
+
+length_df_2  %>% 
+  
+ggplot ( aes(x=group, y=Diff, fill=group) )+ 
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+geom_violin(aes(), trim=F,  kernel ="gaussian", adjust=1)  +
+ geom_boxplot(aes(), width=0.2, outlier.colour = NA, fill="white")+ 
+
+#geom_jitter(aes(), shape=16, position=position_jitter(0.1))+ #aes(color = batch)
+   geom_point(aes(fill=group), position = pj)+ 
+  
+# geom_line(aes(group=cell), position = pj, alpha = 0.2) +
+# geom_path(aes(group = cell),alpha = 0.2)+
+    
+ scale_y_continuous(expand = c(0, 0), 
+                   limits = c(-30, 60), 
+                    breaks = scales::pretty_breaks(n = 8))+ 
+stat_compare_means(comparisons = my_comparisons, paired=F, method="t.test") +
+
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+   theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold", angle = 45)) #for centering the text 
+```
+
+```{r}
+ggsave(
+  "Length.pdf",
+   width=14, height=7, 
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r message=FALSE, warning=FALSE, fig.width=8}
+library(ggpubr)
+
+# my_comparisons <- list( c("Pre", "Act"), c("Pre", "Post"), c("Act", "Post") )
+
+my_comparisons <- list( c("Pre", "Act") )
+
+soma_Int_long %>% subset(soma_length_long$Series != "Post") %>% 
+  
+ggplot(aes(x=Series, y=Actin_int, fill=Series)) + 
+  geom_violin(trim=FALSE, 
+              kernel ="gaussian", 
+              adjust=1)+
+  #geom_boxplot(width=2, fill="white")  +
+  geom_point(aes(fill=Series,group=roi), position = position_dodge(0.2))+
+  geom_line(aes(group=roi), position = position_dodge(0.2)) +
+  stat_compare_means(comparisons = my_comparisons, paired=T, method="wilcox.test")+
+  scale_y_continuous( expand = c(0, 0), limits = c(-300, 600), breaks = scales::pretty_breaks(n = 7))+
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold")) #for centering the text 
+
+# plotly::ggplotly(p)
+```
+```{r}
+ggsave(
+  "PARac1WT_soma_actinInt.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+```{r}
+ggsave(
+  "PARac1WT_soma_actinInt.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+```{r}
+Path_1 <- dirname(rstudioapi::getSourceEditorContext()$path)
+saved_path <- paste(Path_1, "WT_length.RData",  sep = "/")
+save.image(file=saved_path)
+
+```

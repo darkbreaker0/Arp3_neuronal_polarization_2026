@@ -1,0 +1,34 @@
+---
+title: "Fig 4m - WT line profile, actin-focus variant"
+output: html_notebook
+params:
+  genotype: "WT"
+  final_plot_channel: "Ch3"
+  pdf_name: "Act_profile.pdf"
+  write_csvs: TRUE
+---
+
+<!--
+================================================================================
+  Wrapper for Fig 4m, WT genotype, "actin focus" variant.
+================================================================================
+  Includes the canonical template at:
+      ../../templates/fig04m_line_profile_coloc.Rmd
+
+  Parameters supplied above:
+    - genotype = "WT"                 -> Ch2 (actin) NA cutoff = 30
+                                          CSV prefix = "WT"
+    - final_plot_channel = "Ch3"       -> final ribbon plot is df_summary3
+                                          (NMIIb profile)
+    - pdf_name = "Act_profile.pdf"     -> ggsave filename for the panel.
+                                          (Legacy filename retained for
+                                           byte-equivalent reproduction.)
+    - write_csvs = TRUE                -> also emit WT_actin.csv + WT_NMIIb.csv
+                                          as Source Data tables.
+
+  Original 248-line monolithic wrapper extracted into a template on
+  2026-05-12.
+-->
+
+```{r child = "../../templates/fig04m_line_profile_coloc.Rmd"}
+```

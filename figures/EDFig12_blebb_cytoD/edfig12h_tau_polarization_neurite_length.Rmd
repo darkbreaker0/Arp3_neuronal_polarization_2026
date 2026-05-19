@@ -1,0 +1,450 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r message=FALSE, warning=FALSE}
+
+library(pracma)
+#library(peakPick)
+library(quantmod)
+library(ggpmisc)
+library(tidyverse)
+library(magrittr)
+#library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tsibble)
+library(broom)
+library(tidyquant)
+library(tsbox)
+#library("pheatmap")
+#library("RColorBrewer")
+library(ggpmisc)
+library(ggfortify)
+#library(viridis) # Default Color Maps from 'matplotlib' 
+library(hrbrthemes)
+library(circular)
+library("gridExtra") 
+library("ggExtra") 
+library("ggpubr")
+library(data.table)
+```
+
+```{r Load RData, message=FALSE, warning=FALSE}
+dir  <- dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(dir)
+saved_path <- paste(dir, "NeuriteLength_Tau.RData",  sep = "/")
+load(file=saved_path)
+#save.image(file=saved_path)
+```
+
+
+```{r}
+Blebb_Tau_quant <- Blebb_Tau_quant %>% as.data.table()
+Blebb_Tau_quant_2 <- Blebb_Tau_quant[`Neurite length` != 0]
+
+Blebb_Tau_quant_Cell <- Blebb_Tau_quant_2 %>% 
+group_by(Cell, Batch, Blebb, WT_KO) %>% rstatix::get_summary_stats(`Tau IntDen`) %>% as.data.table()
+
+```
+
+
+```{r}
+Blebb_Tau_quant_Cell$max_2nd <- 0
+
+for (n in 1:nrow(Blebb_Tau_quant_Cell))
+{
+  
+  if(Blebb_Tau_quant_Cell$n[n] >= 2){
+    
+    x <- Blebb_Tau_quant_2[Cell == Blebb_Tau_quant_Cell$Cell[n] &  
+                             Batch == Blebb_Tau_quant_Cell$Batch[n] & 
+                             Blebb ==  Blebb_Tau_quant_Cell$Blebb[n] & 
+                             WT_KO == Blebb_Tau_quant_Cell$WT_KO[n] ]$`Tau IntDen` %>% sort()
+    
+    Blebb_Tau_quant_Cell$max_2nd [n] <- x[length(x)-1]
+
+    } else { 
+      
+     Blebb_Tau_quant_Cell$max_2nd [n] <- 0 
+      
+              }
+}
+
+Blebb_Tau_quant_Cell$max_z <- (Blebb_Tau_quant_Cell$max - Blebb_Tau_quant_Cell$mean)/Blebb_Tau_quant_Cell$sd
+Blebb_Tau_quant_Cell$max_2nd_z <- (Blebb_Tau_quant_Cell$max_2nd - Blebb_Tau_quant_Cell$mean)/Blebb_Tau_quant_Cell$sd
+
+Blebb_Tau_quant_Cell$mean_2 <- ((Blebb_Tau_quant_Cell$mean*Blebb_Tau_quant_Cell$n)-Blebb_Tau_quant_Cell$max)/(Blebb_Tau_quant_Cell$n-1)
+
+Blebb_Tau_quant_Cell$max_z2 <- Blebb_Tau_quant_Cell$max/Blebb_Tau_quant_Cell$mean_2
+Blebb_Tau_quant_Cell$max_2nd_z2 <- Blebb_Tau_quant_Cell$max_2nd/Blebb_Tau_quant_Cell$mean_2
+
+```
+
+# Check distribution of max and max_2nd (Tau)
+```{r}
+# Blebb_Tau_quant_Cell[WT_KO == "WT" & Blebb == 20] %>% 
+#  pivot_longer(cols = c("max_z2", "max_2nd_z2"), values_to = "Tau_intensity", names_to = "Tau") %>%
+
+Blebb_Tau_quant_Cell %>% 
+  
+ggplot( aes(x=WT_KO, y=max_2nd_z2, fill =factor (Blebb)) )+ 
+   # geom_hline(yintercept = 1)+
+  scale_fill_brewer(palette="Dark2") + 
+  geom_hline(yintercept=2, linetype=3)+
+
+  theme_classic()+
+  geom_violin(aes(), trim=F, kernel ="gaussian", adjust=1, position=dodge)  +
+ geom_boxplot(aes(), width=0.5, position=dodge)+
+scale_y_continuous(expand = c(0, 0), limits = c(0, 5), breaks = scales::pretty_breaks(n = 7))
+
+Blebb_Tau_quant_Cell$group_2 <- paste (Blebb_Tau_quant_Cell$WT_KO, Blebb_Tau_quant_Cell$Blebb, sep = "_")
+Blebb_Tau_quant_Cell$group_2 %>% table()
+```
+
+```{r}
+ggsave(
+  "Tau_zScoreFold.pdf",
+  plot = last_plot(),
+  device = "pdf")
+```
+
+```{r}
+Blebb_Tau_quant_Cell %>% write_csv("Blebb_Tau_quant_Cell_ExtFig.12i.csv")
+```
+
+```{r}
+Blebb_Tau_quant_Cell$Tau_pos <- "No"
+
+Blebb_Tau_quant_Cell[max_2nd_z2 > 2]$Tau_pos <- "Yes"
+
+freq_df <- Blebb_Tau_quant_Cell%>% group_by(WT_KO, Blebb, Batch)%>%
+    count(Tau_pos) %>% 
+    mutate(percent = n/sum(n)) 
+
+freq_df %>% group_by(WT_KO, Blebb, Tau_pos) %>% mutate(avg = n/sum(n)) 
+
+```
+
+
+```{r}
+Tau_length_2 <- Tau_length[NeuriteNum >1]
+Tau_length_2$TauDiff <- Tau_length_2$Tau_1 - Tau_length_2$Tau_2
+Tau_length_2$Tau_1_Int <- Tau_length_2$Tau_1 * Tau_length_2$Length_1
+Tau_length_2$Tau_2_Int <- Tau_length_2$Tau_2 * Tau_length_2$Length_2
+
+```
+
+# Check density distribution of Tau_1 and Tau_2
+```{r}
+df <- Tau_length_2[Batch == "Batch_5" & Var =="WT_0"] %>% 
+  pivot_longer(cols = c("Tau_1_Int", "Tau_2_Int"), values_to = "Tau_intensity", names_to = "Tau") 
+
+df %>% 
+ggplot(aes(x=Tau, y=Tau_intensity)) + 
+   # geom_hline(yintercept = 1)+
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+  geom_violin(aes(), trim=F, kernel ="gaussian", adjust=1, position=dodge)  +
+  geom_boxplot(aes(), width=0.1, position=dodge)+ 
+ scale_y_continuous(expand = c(0, 0), limits = c(-500, 70000), breaks = scales::pretty_breaks(n = 7))
+
+
+# histogram
+df %>% 
+  ggplot(aes(x=Tau_intensity, fill=Tau, color=Tau)) + 
+  geom_histogram(binwidth=10, position="identity", alpha=0.5)
+
+# cumulative histogram
+df %>% 
+ggplot(aes(x=Tau_intensity, 
+           fill=Tau, 
+           color=Tau,  
+           y = ave(after_stat(density), group, FUN = cumsum)*after_stat(width),
+                   group = Tau))+
+  geom_histogram(aes(), binwidth=5, position="identity", alpha=0.5)+
+       #stat_bin(aes(y=after_stat(cumsum(count / sum(count)))),geom="line",color="green") +
+  geom_line(stat = "bin") +
+  scale_y_continuous(labels = scales::percent_format())
+```
+
+# Calculate the 1st and the 3rd quantile of Tau_1 and Tau_2 in each batch of exp
+```{r}
+Tau_quantile <- Tau_length_2[Var =="WT_0"] %>% 
+  pivot_longer(cols = c("Tau_1", "Tau_2"), values_to = "Tau_density", names_to = "Tau") %>% 
+group_by(Batch, Tau) %>% rstatix::get_summary_stats(Tau_density)
+
+Tau_length_2[Batch == "Batch_5" & Var =="WT_0"]$Tau_2 %>% quantile( 0.95)
+
+# Tau_1
+# Batch_3: q1 = 78.363; 
+# Batch_4: q1 = 136.414; 
+# Batch_5: q1 = 143.601; 
+
+# Tau_2
+# Batch_3: q3 = 108.623; 
+# Batch_4: q3 = 182.333; 
+# Batch_5: q3 = 208.173; 
+
+# Threshold to be considered as axon
+# Batch_3: q3 = 108.623; 
+# Batch_4: q3 = 182.333; 
+# Batch_5: q3 = 208.173; 
+```
+
+```{r}
+Tau_length_2[Batch == "Batch_3"] %>% mutate(Var = factor(Var, levels=c("WT_0", "WT_20", "KO_0", "KO_20"))) %>%
+ggplot(aes(x=Var, y=Tau_1)) + 
+   # geom_hline(yintercept = 1)+
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+  geom_violin(aes(), trim=F, kernel ="gaussian", adjust=1, position=dodge)  +
+  geom_boxplot(aes(group=interaction(Blebb,WT_KO)), width=0.1, position=dodge)
+  #scale_y_continuous(expand = c(0, 0), limits = c(0 ,25), breaks = scales::pretty_breaks(n = 5)) 
+  #stat_compare_means(comparisons = my_comparisons, label.y = c(5, 6, 7, 8, 9)) # Add pairwise comparisons p-value
+  #stat_compare_means(label.y = 22)     # Add global p-value 
+```
+
+
+# 2nd longest neurtie length
+# Remove outliers
+```{r}
+Tau_length <- Tau_length %>% as.data.table()
+measurement <- "Length_2"
+
+df <-Tau_length [WT_KO=="WT" &  Blebb == 0]
+outliers <-  boxplot(df[, ..measurement], plot=FALSE)$out
+Tau_length_WT_0 <- df[-which(Length_2 %in% outliers)]
+
+df <-Tau_length [WT_KO=="WT" &  Blebb == 20]
+outliers <-  boxplot(df[, ..measurement], plot=FALSE)$out
+Tau_length_WT_20<- df[-which(Length_2 %in% outliers)]
+
+df <-Tau_length [WT_KO=="KO" &  Blebb == 0]
+outliers <-  boxplot(df[, ..measurement], plot=FALSE)$out
+Tau_length_KO_0 <- df[-which(Length_2 %in% outliers)]
+
+df <-Tau_length [WT_KO=="KO" &  Blebb == 20]
+outliers <-  boxplot(df[, ..measurement], plot=FALSE)$out
+Tau_length_KO_20<- df[-which(Length_2 %in% outliers)]
+
+Tau_length_OL <- rbind(Tau_length_WT_0, Tau_length_WT_20, Tau_length_KO_0, Tau_length_KO_20)
+Tau_length_OL$Blebb <- as.factor(Tau_length_OL$Blebb)
+
+Tau_length_OL$Var<- paste(Tau_length_OL$WT_KO, Tau_length_OL$Blebb, sep = "_" )
+```
+
+# Length distribution of the 2nd longest neurtie length
+```{r message = FALSE, warning=FALSE, fig.width=5}
+a <- Tau_length_OL %>% ggplot(aes(x = Length_2))
+
+a + geom_density(aes(color = Var), alpha = 0.4) +
+   theme_classic()+
+  #geom_vline(aes(xintercept = mean(Length_2)), linetype = "dashed", size = 0.6) +
+  #geom_histogram(aes(y = ..density.., color = Var, fill=Var),  alpha = 0.4, position = "identity")+
+  scale_x_continuous(expand = c(0, 0), limits = c(0, 150), breaks = scales::pretty_breaks(n = 10)) 
+```
+
+```{r}
+ggsave(
+  "Tau_1.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+```{r}
+Tau_length_OL %>% write_csv("Tau_length_OL.csv")
+```
+
+
+# Polarization index 3 (highest Tau/2nd highest Tau)
+# Remove outliers
+```{r}
+Tau_length_WT_0<- Tau_length %>% subset(WT_KO=="WT") %>% subset(Blebb == 0)
+outliers_WT_0 <-  boxplot(Tau_length_WT_0$Polarization_3, plot=FALSE)$out
+
+Tau_length_WT_20<- Tau_length %>% subset(WT_KO=="WT") %>% subset(Blebb == 20)
+outliers_WT_20 <-  boxplot(Tau_length_WT_20$Polarization_3, plot=FALSE)$out
+
+Tau_length_KO_0<- Tau_length %>% subset(WT_KO=="KO") %>% subset(Blebb == 0)
+outliers_KO_0 <-  boxplot(Tau_length_KO_0$Polarization_3, plot=FALSE)$out
+
+Tau_length_KO_20<- Tau_length %>% subset(WT_KO=="KO") %>% subset(Blebb == 20)
+outliers_KO_20 <-  boxplot(Tau_length_KO_20$Polarization_3, plot=FALSE)$out
+
+Tau_length_WT_0 <- Tau_length_WT_0[-which(Tau_length_WT_0$Polarization_3 %in% outliers_WT_0),]
+Tau_length_WT_20 <- Tau_length_WT_20[-which(Tau_length_WT_20$Polarization_3 %in% outliers_WT_20),]
+Tau_length_KO_0 <- Tau_length_KO_0[-which(Tau_length_KO_0$Polarization_3 %in% outliers_KO_0),]
+Tau_length_KO_20 <- Tau_length_KO_20[-which(Tau_length_KO_20$Polarization_3 %in% outliers_KO_20),]
+
+Tau_length_OL <- rbind(Tau_length_WT_0, Tau_length_WT_20, Tau_length_KO_0, Tau_length_KO_20)
+Tau_length_OL$Blebb <- as.factor(Tau_length_OL$Blebb)
+
+Tau_length_OL$Var<- paste(Tau_length_OL$WT_KO, Tau_length_OL$Blebb, sep = "_" )
+```
+
+
+```{r message = FALSE, warning=FALSE, fig.width=5}
+ylim1 = boxplot.stats(Tau_length_OL$Polarization_3)$stats[c(1, 5)] #+ coord_cartesian(ylim = ylim1*1.05) 
+my_comparisons <- list( c("KO_0", "KO_20"), c("WT_0", "WT_20"),c("KO_0", "WT_0"), c("KO_20", "WT_20"),  c("KO_20", "WT_0") )
+dodge <- position_dodge(width = 1)
+
+Tau_length_OL %>% mutate(Var = factor(Var, levels=c("WT_0", "WT_20", "KO_0", "KO_20"))) %>%
+ggplot(aes(x=Var, y=Polarization_3)) + 
+    geom_hline(yintercept = 1)+
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+  geom_violin(aes(fill = Blebb), trim=F, kernel ="gaussian", adjust=1, position=dodge) +
+  geom_boxplot(aes(group=interaction(Blebb,WT_KO)), width=0.1, position=dodge)+
+  #scale_y_continuous(expand = c(0, 0), limits = c(0 ,25), breaks = scales::pretty_breaks(n = 5)) 
+  stat_compare_means(comparisons = my_comparisons, label.y = c(5, 6, 7, 8, 9)) # Add pairwise comparisons p-value
+  #stat_compare_means(label.y = 22)     # Add global p-value 
+```
+```{r}
+ggsave(
+  "Polarization_3.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+```{r}
+Tau_length_OL %>% write_csv("Tau_length_OL.csv")
+```
+
+
+# Polarization index 2 (longest neurite length/2nd longest neurite length)
+# Remove outliers
+```{r}
+Tau_length_WT_0<- Tau_length %>% subset(WT_KO=="WT") %>% subset(Blebb == 0)
+outliers_WT_0 <-  boxplot(Tau_length_WT_0$Polarization_2, plot=FALSE)$out
+
+Tau_length_WT_20<- Tau_length %>% subset(WT_KO=="WT") %>% subset(Blebb == 20)
+outliers_WT_20 <-  boxplot(Tau_length_WT_20$Polarization_2, plot=FALSE)$out
+
+Tau_length_KO_0<- Tau_length %>% subset(WT_KO=="KO") %>% subset(Blebb == 0)
+outliers_KO_0 <-  boxplot(Tau_length_KO_0$Polarization_2, plot=FALSE)$out
+
+Tau_length_KO_20<- Tau_length %>% subset(WT_KO=="KO") %>% subset(Blebb == 20)
+outliers_KO_20 <-  boxplot(Tau_length_KO_20$Polarization_2, plot=FALSE)$out
+
+Tau_length_WT_0 <- Tau_length_WT_0[-which(Tau_length_WT_0$Polarization_2 %in% outliers_WT_0),]
+Tau_length_WT_20 <- Tau_length_WT_20[-which(Tau_length_WT_20$Polarization_2 %in% outliers_WT_20),]
+Tau_length_KO_0 <- Tau_length_KO_0[-which(Tau_length_KO_0$Polarization_2 %in% outliers_KO_0),]
+Tau_length_KO_20 <- Tau_length_KO_20[-which(Tau_length_KO_20$Polarization_2 %in% outliers_KO_20),]
+
+Tau_length_OL <- rbind(Tau_length_WT_0, Tau_length_WT_20, Tau_length_KO_0, Tau_length_KO_20)
+Tau_length_OL$Blebb <- as.factor(Tau_length_OL$Blebb)
+
+Tau_length_OL$Var<- paste(Tau_length_OL$WT_KO, Tau_length_OL$Blebb, sep = "_" )
+```
+
+# generate pairwise comparison list
+```{r}
+df <-Tau_length_OL$Var %>% table() %>% as.data.frame()
+my_comparisons <- df$. %>% as.character() %>% combn(2, simplify = FALSE) 
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=5}
+ylim1 = boxplot.stats(Tau_length_OL$Polarization_2)$stats[c(1, 5)] #+ coord_cartesian(ylim = ylim1*1.05) 
+#my_comparisons <- list( c("KO_0", "KO_20"), c("WT_0", "WT_20"),c("KO_0", "WT_0"), c("KO_20", "WT_20"),  c("KO_20", "WT_0") )
+dodge <- position_dodge(width = 1)
+
+Tau_length_OL %>% mutate(Var = factor(Var, levels=c("WT_0", "WT_20", "KO_0", "KO_20"))) %>%
+ggplot(aes(x=Var, y=Polarization_2)) + 
+  geom_hline(yintercept = 1)+
+  scale_fill_brewer(palette="Dark2") + 
+  theme_classic()+
+  geom_violin(aes(fill = Blebb), trim=F, kernel ="gaussian", adjust=1, position=dodge) +
+  geom_boxplot(aes(group=interaction(Blebb,WT_KO)), width=0.1, position=dodge)+
+  #scale_y_continuous(expand = c(0, 0), limits = c(0 ,25), breaks = scales::pretty_breaks(n = 5)) 
+  stat_compare_means(comparisons = my_comparisons, label.y = c(6, 7, 8, 9, 10)) # Add pairwise comparisons p-value
+  #stat_compare_means(label.y = 22)     # Add global p-value 
+```
+
+```{r}
+ggsave(
+  "Polarization_2.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+```{r}
+Tau_length$Var<- paste(Tau_length$WT_KO, Tau_length$Blebb, sep = "_" )
+Tau_length_polarized <- Tau_length [Length_1 >70]
+```
+
+# Remove outliers
+```{r}
+
+measurement <- "Polarization_3"
+
+df <-Tau_length_polarized [WT_KO=="WT" &  Blebb == 0]
+outliers <-  boxplot(df[, ..measurement], plot=FALSE)$out
+Tau_length_WT_0 <- df[-which(Polarization_3 %in% outliers)]
+
+df <-Tau_length_polarized [WT_KO=="WT" &  Blebb == 20]
+outliers <-  boxplot(df[, ..measurement], plot=FALSE)$out
+Tau_length_WT_20<- df[-which(Polarization_3 %in% outliers)]
+
+df <-Tau_length_polarized [WT_KO=="KO" &  Blebb == 0]
+#outliers <-  boxplot(df[, ..measurement], plot=FALSE)$out
+Tau_length_KO_0 <- df#[-which(Polarization_3 %in% outliers)]
+
+df <-Tau_length_polarized [WT_KO=="KO" &  Blebb == 20]
+outliers <-  boxplot(df[, ..measurement], plot=FALSE)$out
+Tau_length_KO_20<- df[-which(Polarization_3 %in% outliers)]
+
+df_1 <- rbind(Tau_length_WT_0, Tau_length_WT_20, Tau_length_KO_20)
+# Tau_length_OL$Blebb <- as.factor(Tau_length_OL$Blebb)
+```
+
+# generate pairwise comparison list
+```{r}
+df <-df_1$Var %>% table() %>% as.data.frame()
+my_comparisons <- df$. %>% as.character() %>% combn(2, simplify = FALSE) 
+```
+
+```{r message = FALSE, warning=FALSE, fig.width=8}
+library(easyGgplot2)
+#my_comparisons <- list( c("WT_0", "WT_20"), c("KO_20", "WT_20"),  c("KO_20", "WT_0") )
+
+df_1 %>% 
+  mutate(Var = fct_relevel(Var, "WT_0", "WT_20", "KO_0", "KO_20")) %>% 
+  ggplot2.violinplot(yName="Polarization_3", xName='Var', groupName='Var', 
+                     addDot=TRUE, dotSize=1,dotPosition="jitter", jitter=0.2, 
+                     trim=F,  kernel ="gaussian", adjust=0.5)+
+    
+  geom_boxplot(width=0.1, fill="white")  +
+ # rotate_x_text(angle = 45)+  
+  scale_y_continuous(expand = c(0, 0), limits = c(0 ,6), breaks = scales::pretty_breaks(n = 5)) +
+  stat_compare_means(comparisons = my_comparisons, paired=F, method="wilcox.test", label.y = c(4.6, 4.8, 5, 5.2, 5.4, 5.6), label = "{p.adj.format}{p.adj.signif}") +
+  
+  geom_hline(yintercept = mean(df_1$Polarization_3, na.rm = T), linetype = 2)+ # Add horizontal line at base mean
+  #stat_compare_means(label.y = 0.45) +        # Add global annova p-value
+  #stat_compare_means(label = "p.signif", method = "wilcox.test", ref.group = ".all.") +
+  
+  theme_ipsum(grid = F, ticks = T) +
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"),
+        panel.grid.major = element_blank(), S
+        panel.grid.minor = element_blank(),
+        legend.position = "right",
+        axis.text=element_text(size=12, face="bold"))
+   
+```
+```{r}
+ggsave(
+  "Polarization_3_longerThan70.eps",
+  plot = last_plot(),
+  device = "eps")
+```
+
+```{r, message=FALSE, warning=FALSE}
+dir  <- dirname(rstudioapi::getSourceEditorContext()$path)
+setwd(dir)
+saved_path <- paste(dir, "NeuriteLength_Tau.RData",  sep = "/")
+#load(file=saved_path)
+
+save.image(file=saved_path)
+```
