@@ -3,9 +3,42 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Lag cross-correlation of neurite-tip growth velocity vs Arp3 / MRLC intensities (LSM980 cohort)
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads paired per-neurite Arp3 + MRLC + actin kymograph and tip-intensity CSVs
+from LSM980 Airyscan triple-channel movies (`list.files` patterns at lines
+53, 162, 169 over `Myl_list` and `selected_list`). For each neurite the
+local-detrended growth velocity is cross-correlated against the change of
+Arp3 and the change of MRLC at the tip, and the two CCF curves are overlaid
+with peak / valley lag-time labels. Cross-correlation between somatic Arp3
+and somatic MRLC intensity is also computed for ED Fig 6l. Five PDFs are
+written (`ggsave` at lines 114, 144, 391, 451, 966).
+
+## Manuscript panels
+
+- **ED Fig 6h**: "Cross-correlation of neurite growth velocity with the
+  changes of Arp3 and MRLC intensities in the individual neurite tips of WT
+  neurons. Values are plotted as mean +/- SD. N = 721 neurites of 99 neurons
+  from 4 independent experiments."
+- **ED Fig 6l**: "Cross-correlation between changes of Arp3 and MRLC
+  intensities at the soma. Values are plotted as mean +/- SD. Data points are
+  of the same source in (h)."
+
+Source Data: `ED Fig 6h`, `ED Fig 6l`.
+
+## Outputs
+
+- Five PDFs (`ggsave` at lines 114, 144, 391, 451, 966).
+
+## Original G:\ source
+
+G:/Figure 3_Arp3/Fig. 3j-n_PARac1/LSM980/Analyzed/R_scripts/Neurite activity corr.Rmd
+(Note: original folder is under Fig 3j-n PARac1 but the file feeds ED Fig 6h
+and ED Fig 6l, confirmed via Source Data sheet mapping.)
+-->
 
 Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
 

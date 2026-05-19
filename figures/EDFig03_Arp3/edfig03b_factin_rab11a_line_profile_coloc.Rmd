@@ -3,9 +3,38 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# F-actin / Rab11a soma-patch line-profile colocalization
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads paired soma-patch line-profile CSVs `Rab11.csv` and `Actin.csv` per
+neuron (lines 52, 57, 67, 71), computes per-patch correlation between the two
+intensity profiles, and pools the per-neuron correlation coefficients into a
+violin plot (`ggsave` at line 197).
+
+## Manuscript panel
+
+**ED Fig 3b**: "Colocalization of actin patches with Arp3 and Rab11a. N = 41
+neurons for Arp3-actin colocalization and 34 neurons for Rab11a-actin
+colocalization, from 4 independent experiments for Arp3 and from 3 for Rab11a.
+***p < 0.001 by Two-tailed t-test."
+
+Source Data: `ED Fig 3b`.
+
+## Outputs
+
+- One violin-plot PDF (`ggsave` at line 197).
+
+## Related files
+
+- `edfig03b_rab11_arp3_actin_coloc_consolidator.Rmd` - consolidates Arp3 and
+  Rab11a coloc into the joint ED Fig 3b plot.
+
+## Original G:\ source
+
+G:/Figure S3_Arp3/Fig. S3a_Rab11a/R_scripts/Patch_profile_Corr.Rmd
+-->
 
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}

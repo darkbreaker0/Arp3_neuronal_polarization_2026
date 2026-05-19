@@ -3,9 +3,33 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# KIF5C1-560 vs neurite-tip velocity CCF in WT neurons (alternative-cohort variant)
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Alternative-cohort variant sourced from `D:\DVElite`. Reads per-neurite
+tip-intensity CSVs (`Tip_actin_*.csv`, `Tip_Kif5*.csv` from per-cell
+subfolders; lines 68, 103, 128) for WT DIV-2 neurons co-expressing
+Lifeact-mScarlet and KIF5C1-560-mNeonGreen and computes lag cross-correlation
+between neurite growth velocity and the change of KIF5C1-560 intensity at the
+tip. Four PDFs are written (`ggsave` at lines 644, 899, 1172, 1662).
+
+## Manuscript panels
+
+- **ED Fig 3n** - KIF5C1-560 Z-scores across growth phases.
+- **ED Fig 3o**: "Cross-correlation between growth velocity and the change of
+  KIF5C1-560 at individual neurite tip. Values are plotted as mean +/- SD.
+  N = 550 neurites of 92 neurons from 3 independent experiments."
+
+## Outputs
+
+- Four PDFs (`ggsave` at lines 644, 899, 1172, 1662).
+
+## Original D:\ source
+
+D:/DVElite/Kif5C_extfig. 3no/R_script/Neurite activity corr.Rmd
+-->
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 library(pracma)

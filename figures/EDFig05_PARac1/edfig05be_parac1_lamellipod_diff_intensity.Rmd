@@ -3,9 +3,38 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# PA-Rac1-induced actin intensity difference at growth cones / soma / lamellipodia
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads Fiji "Batch ROI measurement" CSVs (`*measurements.csv` via `list.files`
+at lines 60-63) for PA-Rac1 photoactivation movies, including the dominant-
+negative variants (T17N, C450M) and the Arp3 KO control. For each activation
+event the actin intensity difference relative to baseline is computed and
+pooled by condition. Six PDFs are written (`ggsave` at lines 211, 291, 338,
+432, 494, 550) producing the violin / boxplot comparisons across conditions.
+
+## Manuscript panels
+
+- **ED Fig 5b**: "Actin intensity difference induced by the activation of
+  PA-Rac1 and the variants. For PA-Rac1 in WT neurons, N = 27 activation
+  events at the growth cone and 21 activation events at the soma; for
+  PA-Rac1T17N in WT neurons, N = 18; for PA-Rac1C450M in WT neurons, N = 21;
+  for PA-Rac1 in Arp3 KO neurons, N = 40 from 3 experiments."
+- **ED Fig 5e**: "Actin intensity difference in the multiple growth cones
+  (GCs) under PA-Rac1 activation. N = 35 neurons from 5 experiments."
+
+Source Data: `ED Fig 5b`, `ED Fig 5e`.
+
+## Outputs
+
+- Six PDFs (`ggsave` at lines 211, 291, 338, 432, 494, 550).
+
+## Original G:\ source
+
+G:/Figure S5_PA-Rac1/Fig. S5e/Neurite activity corr.Rmd
+-->
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 library(pracma)

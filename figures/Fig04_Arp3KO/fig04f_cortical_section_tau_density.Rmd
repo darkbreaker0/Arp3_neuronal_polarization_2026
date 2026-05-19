@@ -3,11 +3,34 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Tau-density spatial profile across cortical-section distance, WT vs Arp3 KO
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+Reads per-section Tau-intensity profiles across cortical-section distance
+for WT and Arp3 KO genotypes. The profiles are aligned by position,
+averaged, and plotted as a line plot of mean Tau intensity vs distance with
+a mean +/- SD ribbon overlay (`geom_ribbon` at line 75, `geom_line` at
+line 76). One PDF is written (`ggsave` at line 100).
+
+## Manuscript panel
+
+**Fig 4f**: "Tau density. N = 3 WT and 3 Arp3 KO sections of 3 experiments.
+*p < 0.05 by Two-tailed paired Wilcoxon test."
+
+Source Data: `Fig 4f`.
+
+## Outputs
+
+- One line-plot PDF (`ggsave` at line 100).
+
+## Original G:\ source
+
+G:/Figure 4_Arp3KO/Fig. 4f/CorticalSection_Tau_Fig.4f/Neurite activity corr.Rmd
+(name was misleading — this is a spatial line-profile analysis, not the
+neurite-velocity cross-correlation analysis the original filename suggests.)
+-->
 
 ## Package installation
 

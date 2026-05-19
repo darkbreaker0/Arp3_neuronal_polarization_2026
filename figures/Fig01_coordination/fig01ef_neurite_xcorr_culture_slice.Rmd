@@ -2,6 +2,43 @@
 title: "R Notebook"
 output: html_notebook
 ---
+
+<!--
+# Lag cross-correlation of neurite-tip velocity vs soma actin (2D culture + cortical slice)
+
+## What this file does
+
+Reads kymograph TIFFs and per-cell neurite-tip / soma-actin CSVs (`list.files`
+patterns at lines 59, 89, 94) from 2D-culture and cortical-slice DIV-1
+movies of unpolarized neurons. For each neuron the per-neurite extension /
+retraction profile is computed and the lag cross-correlation between
+neurite-tip velocity and the change of soma actin intensity is pooled across
+the cohort. Six PDFs are written (`ggsave` at lines 203, 251, 374, 448, 612,
+736) including the CCF-curve PDFs for Fig 1e/f and the extending-neurite
+distribution PDFs.
+
+## Manuscript panels
+
+- **Fig 1e**: "Neurite extension-retraction cross-correlation in cultured
+  neurons. Values are plotted as mean +/- SD. N = 101 neurons from 4
+  experiments."
+- **Fig 1f**: "Neurite extension-retraction cross-correlation in acute
+  cortical slice culture. Values are plotted as mean +/- SD. N = 59 neurons
+  from 3 experiments."
+- **Fig 1k**, **Fig 1l**, **ED Fig 1b**, **ED Fig 1c** - additional panels
+  fed by this multi-section file.
+
+Source Data: `Fig 1e`, `Fig 1f`, `Fig 1k`, `Fig 1l`, `ED Fig 1b`, `ED Fig 1c`.
+
+## Outputs
+
+- Six PDFs (`ggsave` at lines 203, 251, 374, 448, 612, 736).
+
+## Original G:\ source
+
+G:/Figure 1_coordination/Fig. 1f/WT/R_scripts/Neurite activity corr.Rmd
+-->
+
 ## Input kymograph tiff files
 ```{r}
 # BiocManager::install("bioimagetools")

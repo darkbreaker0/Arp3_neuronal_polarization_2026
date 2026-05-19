@@ -3,9 +3,35 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Soma-patch fluorescence line-profile colocalization (Arp3 / NMIIb / F-actin)
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Canonical Patch_profile_Corr analysis for ED Fig 6g. Reads paired soma-patch
+line-profile CSVs (`profiles1.csv`, `profiles2.csv`, plus the bundled
+`profiles.csv` aggregate at line 128) for the Arp3-A488 + NMIIb-A647 +
+phalloidin staining cohort (lines 56, 61, 71, 75), computes per-patch
+correlation between the actin-Arp3 and actin-NMIIb intensity pairs, and
+pools per-neuron coefficients into the joint violin plot (`ggsave` at
+line 280).
+
+## Manuscript panel
+
+**ED Fig 6g**: "Colocalization of actin patches with Arp3 and NMIIb patches.
+N = 24 neurons for Arp3 and 31 neurons for NMIIb from 3 independent
+experiments. ***p < 0.001 by Two-tailed Mann-Whitney test."
+
+Source Data: `ED Fig 6g`.
+
+## Outputs
+
+- One violin-plot PDF (`ggsave` at line 280).
+
+## Original G:\ source
+
+G:/Figure S6_myosin/Fig. S6g/201002_ICC_extFig. 6g/Patch_profile_Corr.Rmd
+-->
 
 Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
 

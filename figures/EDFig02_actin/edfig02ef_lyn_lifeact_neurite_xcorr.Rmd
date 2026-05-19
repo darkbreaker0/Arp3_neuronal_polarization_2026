@@ -3,9 +3,40 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Lag cross-correlation of neurite-tip velocity vs actin (Lifeact) and membrane (LynTM) intensities
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads per-neurite kymograph tip-intensity CSVs (`Actin_tip*.csv`, `Lyn_tip*.csv`
+and `Neurite_*` tip-velocity CSVs; loaded from per-cell subfolders, lines 64,
+94, 125) for two-channel Lifeact-mScarlet + LynTM-mNeonGreen movies. For each
+neurite the local-detrended velocity is cross-correlated against the local
+actin intensity profile and against the local LynTM intensity profile, then
+pooled across the cohort (N = 509 neurites of 73 neurons from 4 experiments).
+Three CCF-curve PDFs are written (`ggsave` at lines 351, 682, 992).
+
+## Manuscript panel
+
+**ED Fig 2e**: "Cross-correlation of neurite growth velocity with the changes
+of actin and membrane marker LynTM at the neurite tips of individual neurites.
+Values are plotted as mean +/- SD. N = 509 neurites of 73 neurons from 4
+independent experiments."
+
+**ED Fig 2f**: "Comparison of the correlation levels of the changes of actin
+and LynTM with neurite growth velocity. Data points N = 509 neurites are of
+the same source of (e)."
+
+Source Data: `ED Fig 2e`, `ED Fig 2f`.
+
+## Outputs
+
+- Three CCF-curve PDFs (`ggsave` at lines 351, 682, 992).
+
+## Original G:\ source
+
+G:/Figure S2_actin/Fig. S2d/Lyn_Lifeact/Neurite activity corr.Rmd
+-->
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 #library(pracma)

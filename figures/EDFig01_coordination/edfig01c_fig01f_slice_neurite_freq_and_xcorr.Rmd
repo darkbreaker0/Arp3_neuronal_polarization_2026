@@ -2,6 +2,42 @@
 title: "R Notebook"
 output: html_notebook
 ---
+
+<!--
+# Slice DIV-3 neurite growth profiling + neurite-tip / soma-actin CCF
+
+## What this file does
+
+Reads kymograph TIFFs and per-cell neurite-tip / soma-actin CSVs (`list.files`
+patterns at lines 59, 89, 94) from cortical-slice DIV-3 movies of neurons
+expressing LynTM-mNeonGreen. For each neuron the per-neurite extension /
+retraction profile is computed (extending-neurite-count distribution feeds
+ED Fig 1c), and the lag cross-correlation between neurite-tip velocity and
+the change of soma actin intensity is pooled across the cohort (N = 59
+neurons from 3 experiments; feeds Fig 1f). Six PDFs are written (`ggsave` at
+lines 203, 251, 374, 448, 612, 736).
+
+## Manuscript panels
+
+- **ED Fig 1c**: "Relative occurrence of neurons in cortical slice culture
+  having the indicated number of extending neurites over the observation
+  time. Values are plotted as mean +/- SD. N = 59 neurons from 3 independent
+  experiments."
+- **Fig 1f**: "Neurite extension-retraction cross-correlation in acute
+  cortical slice culture. Values are plotted as mean +/- SD. N = 59 neurons
+  from 3 experiments."
+
+Source Data: `ED Fig 1c`, `Fig 1f`.
+
+## Outputs
+
+- Six PDFs (`ggsave` at lines 203, 251, 374, 448, 612, 736).
+
+## Original G:\ source
+
+G:/Figure S1_coordination/Fig. S1c/R_scripts/Neurite activity corr.Rmd
+-->
+
 ## Input kymograph tiff files
 ```{r}
 # BiocManager::install("bioimagetools")

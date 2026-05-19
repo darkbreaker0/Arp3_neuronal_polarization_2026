@@ -2,6 +2,39 @@
 title: "R Notebook"
 output: html_notebook
 ---
+
+<!--
+# Morphology quantification (longest-neurite length + neurite count) under DMSO / Taxol / Nocodazole, WT + Arp3 KO
+
+## What this file does
+
+Reads per-neuron morphology CSVs from `folder_path` (`list.files` at line 53,
+loaded line 56) for the Taxol / Nocodazole treatment experiment. Per-neuron
+longest-neurite length and neurite count are pooled by genotype (WT, Arp3 KO)
+and treatment (DMSO, 75 nM nocodazole, 5 nM Taxol). One multi-panel PDF is
+written (`ggsave` at line 164) showing violin distributions for both metrics.
+
+## Manuscript panels
+
+- **Fig 5b**: "Percentage of neurons at 48 h post-plating in polarization
+  stages. N = 4 experiments. Error bar shows mean +/- SEM."
+- **Fig 5c**: "Length of the longest neurite at 48 h post-plating. WT_DMSO:
+  236; WT_Noco: 212; WT_Taxol: 236; KO_DMSO: 204; KO_Noco: 42; KO_Taxol: 167
+  from 4 independent experiments."
+- **Fig 5d**: "Number of neurites. WT_DMSO: 86; WT_Noco: 60; WT_Taxol: 41;
+  KO_DMSO: 80; KO_Noco: 32; KO_Taxol: 55 from 2 experiments."
+
+Source Data: `Fig 5b`, `Fig 5c`, `Fig 5d`.
+
+## Outputs
+
+- One multi-panel violin PDF (`ggsave` at line 164).
+
+## Original G:\ source
+
+G:/Figure 5_myosin/Fig. 5a/Taxol_noc_expts/Morpho_quant.Rmd
+-->
+
 ```{r message=FALSE}
 
 library(pracma)

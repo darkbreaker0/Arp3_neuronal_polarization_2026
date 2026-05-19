@@ -2,6 +2,39 @@
 title: "R Notebook"
 output: html_notebook
 ---
+
+<!--
+# Tau-positive axon polarization level vs neurite length (blebbistatin / cytoD)
+
+## What this file does
+
+Reads in-line per-neuron Tau-intensity and neurite-length tables for WT and
+Arp3 KO neurons treated with DMSO or 20 uM blebbistatin. Neurons with at
+least one neurite longer than 70 um are scored for asymmetric Tau
+distribution (a polarization-level proxy). Per-neuron polarization scores
+are pooled by genotype + treatment and plotted as violin + boxplot. Five
+PDFs are written (`ggsave` at lines 106, 249, 304, 365, 437).
+
+## Manuscript panel
+
+**ED Fig 12h**: "Polarization level quantified by asymmetric Tau distribution.
+Neurons with neurite length > 70 um were analyzed. N = 73 DMSO-treated WT,
+180 blebbistatin treated WT, and 197 blebbistatin treated Arp3 KO neurons
+from 3-4 independent experiments. ***p < 0.001; *p < 0.05 by Two-tailed
+Kruskal-Wallis test followed by Dunn's post-hoc test with Bonferroni
+correction. Exact P values are shown."
+
+Source Data: `ED Fig 12h`.
+
+## Outputs
+
+- Five PDFs (`ggsave` at lines 106, 249, 304, 365, 437).
+
+## Original G:\ source
+
+G:/Figure S12_blebbistatin_CytoD/Fig. S12h/R_scripts/NeuriteLength_Tau.Rmd
+-->
+
 ```{r message=FALSE, warning=FALSE}
 
 library(pracma)

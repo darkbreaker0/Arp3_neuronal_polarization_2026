@@ -3,9 +3,40 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Actin-wave frequency: per-neurite and per-cell across polarization stages
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads in-line per-cell wave-event count tables (segregated by polarization
+stage: unpolarized, polarizing, polarized, and by neurite type: axon, minor
+neurite) and computes per-neurite and per-cell actin-wave frequencies.
+Three PDFs are written (`ggsave` at lines 154, 201, 275) producing the
+violin / scatter + boxplot comparisons.
+
+## Manuscript panels
+
+- **Fig 2h**: "Frequency of actin waves per neurite before polarization and
+  per axon and minor neurite after polarization. N = 31 neurons from 5
+  experiments. ***p < 0.001; *p < 0.05 by Kruskal-Wallis test followed by
+  Dunn's post-hoc test with Bonferroni correction. Exact P values are shown."
+- **Fig 2i**: "Frequency of actin waves per cell. N = 23 unpolarized, 36
+  polarizing and 34 polarized neurons from 3 to 5 experiments. *p < 0.05;
+  ns, p >= 0.05 by Kruskal-Wallis test followed by Dunn's post-hoc test with
+  Bonferroni correction. Exact P values are shown."
+
+(Feeds Fig 2h/i and additional ED Fig 2 panels per Source Data mapping.)
+
+Source Data: `Fig 2h`, `Fig 2i`, `ED Fig 2a`, `ED Fig 2b`.
+
+## Outputs
+
+- Three violin / scatter + boxplot PDFs (`ggsave` at lines 154, 201, 275).
+
+## Original G:\ source
+
+G:/Figure 2_actin wave/Fig. 2g/S2S3_transition/wave_count.Rmd
+-->
 
 
 

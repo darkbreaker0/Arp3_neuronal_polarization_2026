@@ -3,9 +3,34 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Consolidator: Rab11a + Arp3 + actin patch colocalization
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads pre-computed per-neuron correlation tables (`csv_list` from `Path_1`,
+lines 43, 53) for the Arp3-actin and Rab11a-actin colocalization datasets,
+combines them into a single long-form table, and produces the joint violin
+plot for ED Fig 3b (`ggsave` at line 198).
+
+## Manuscript panel
+
+**ED Fig 3b**: "Colocalization of actin patches with Arp3 and Rab11a. N = 41
+neurons for Arp3-actin colocalization and 34 neurons for Rab11a-actin
+colocalization, from 4 independent experiments for Arp3 and from 3 for Rab11a.
+***p < 0.001 by Two-tailed t-test."
+
+Source Data: `ED Fig 3b`.
+
+## Outputs
+
+- One violin-plot PDF (`ggsave` at line 198).
+
+## Original G:\ source
+
+G:/Figure S3_Arp3/Fig. S3a_Rab11a/R_scripts/read_stat_coloc.Rmd
+-->
+
 ```{r message=FALSE}
 library(pracma)
 library(peakPick)

@@ -3,9 +3,37 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Polarization-transition neurite dynamics (duration / velocity) - alternative-cohort variant
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Alternative-cohort variant sourced from `D:\DVElite\S2S3_transition`. Reads
+per-neurite tip-actin and neurite-actin CSVs (`TipActin*.csv`,
+`NeuriteActin*.csv` from per-cell subfolders; lines 65, 97, 130) for
+neurons at the transition to polarization. Per-neurite extension / retraction
+duration and velocity are computed and pooled by neurite class. Six PDFs are
+written (`ggsave` at lines 881, 1622, 1936, 2259, 2546, 2594).
+
+## Manuscript panels
+
+- **Fig 2j** - extension / retraction duration.
+- **Fig 2k** - extension / retraction velocity.
+- **Fig 2l**: "Cross-correlation between neurite growth velocity and the
+  change of actin intensity at neurite tips in the neurons at the transition
+  to polarization. Data source is the same as (j)."
+
+Verbatim panel legends are in the canonical sibling
+`fig02jk_neurite_actin_xcorr_polarized.Rmd`.
+
+## Outputs
+
+- Six PDFs (`ggsave` at lines 881, 1622, 1936, 2259, 2546, 2594).
+
+## Original D:\ source
+
+D:/S2S3_transition/R_scripts/Neurite activity corr.Rmd
+-->
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 library(pracma)

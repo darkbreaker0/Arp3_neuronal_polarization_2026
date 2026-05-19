@@ -3,9 +3,35 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Para-aminoblebbistatin somatic PA-Rac1: neurite length-difference comparison
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads per-cell neurite-length CSVs from PA-Rac1 photoactivation at the soma
+in WT neurons treated with 40 uM para-aminoblebbistatin (`csv_file` from
+`Path_1`, lines 47, 62). For each activation event the length difference of
+perfused vs. control neurites is computed and pooled by condition. Three
+PDFs are written (`ggsave` at lines 148, 184, 248) producing the violin
+comparison of length differences.
+
+## Manuscript panel
+
+**ED Fig 7d**: "Length difference induced by the activation of PA-Rac1 at the
+soma treated with 40 uM para-aminoblebbistatin. Control: same group of
+PA-Rac1 at the growth cone as in Fig. 3n. N = 22 cells of control and 33 of
+treated cells. **p < 0.01 by Two-tailed Mann-Whitney test."
+
+Source Data: `ED Fig 7d`.
+
+## Outputs
+
+- Three PDFs (`ggsave` at lines 148, 184, 248).
+
+## Original G:\ source
+
+G:/Figure 3_Arp3/Fig. 3j-n_PARac1/Andor/paraBlebb/paBlebb_soma_20uM/Neurite_length.Rmd
+-->
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 library(pracma)

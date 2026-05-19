@@ -3,9 +3,35 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Lag cross-correlation between neurite-tip velocity and tip actin at polarization transition
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads per-neurite tip-actin and neurite-actin CSVs (`TipActin*.csv`,
+`NeuriteActin*.csv` from per-cell subfolders; lines 65, 97, 130) for neurons
+at the transition to polarization (canonical published cohort). For each
+neurite the local-detrended growth velocity is cross-correlated against the
+change of actin intensity at the tip. CCF curves are pooled to a mean +/- SD
+across the cohort. Six PDFs are written (`ggsave` at lines 877, 1614, 1928,
+2251, 2558, 2606).
+
+## Manuscript panel
+
+**Fig 2l**: "Cross-correlation between neurite growth velocity and the change
+of actin intensity at neurite tips in the neurons at the transition to
+polarization. Data source is the same as (j)."
+
+Source Data: `Fig 2l`, `ED Fig 2l`.
+
+## Outputs
+
+- Six PDFs (`ggsave` at lines 877, 1614, 1928, 2251, 2558, 2606).
+
+## Original G:\ source
+
+G:/Figure 2_actin wave/Fig. 2g/S2S3_transition/Neurite activity corr.Rmd
+-->
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 library(pracma)

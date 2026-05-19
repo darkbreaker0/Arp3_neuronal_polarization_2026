@@ -2,6 +2,40 @@
 title: "R Notebook"
 output: html_notebook
 ---
+
+<!--
+# Lag cross-correlation: DMSO-control Arp3 KO neurite-tip velocity vs soma actin
+
+## What this file does
+
+Reads per-cell kymograph CSVs (`list.files(...)` at lines 70, 103, 138 for
+the 170515 + 170522 imaging batches) for DIV-1 Arp3 KO neurons treated with
+DMSO vehicle. For each neuron the local-detrended growth velocity is
+cross-correlated against the change of soma actin intensity and CCF curves
+are pooled to a mean +/- SD across the cohort. Two PDFs are written
+(`ggsave` at lines 410, 846).
+
+## Manuscript panels
+
+- **Fig 5l** - extension / retraction duration, WT vs Arp3 KO blebbistatin
+  (DMSO/KO control arm).
+- **Fig 5m** - extension / retraction velocity (same data source as Fig 5l).
+
+This file is the DMSO / Arp3 KO control arm; see sibling wrappers
+`fig05l_blebb_*_neurite_xcorr.Rmd`, `fig05l_dmso_wt_neurite_xcorr.Rmd`.
+Upstream consolidator: `fig05l_kymo_consolidate_master.Rmd`.
+
+Source Data: `Fig 5l`, `Fig 5m` (DMSO/KO).
+
+## Outputs
+
+- Two CCF-curve PDFs (`ggsave` at lines 410, 846).
+
+## Original G:\ source
+
+G:/Figure 5_myosin/Fig. 5l/DMSO_KO/Neurite activity corr_2.Rmd
+-->
+
 ## Input kymograph tiff files
 ```{r}
 # BiocManager::install("bioimagetools")

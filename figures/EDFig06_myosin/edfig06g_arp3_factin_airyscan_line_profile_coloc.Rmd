@@ -3,9 +3,33 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Arp3 / F-actin growth-cone Airyscan line-profile colocalization
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads paired Airyscan growth-cone line-profile CSVs (`profiles.csv` and
+`profiles2.csv` per neuron, lines 53, 58, 70, 74) for the Arp3-A488 +
+phalloidin-Rhodamine staining cohort, computes per-profile correlation
+between Arp3 and F-actin intensities, and produces the violin-plot
+comparison (`ggsave` at line 190).
+
+## Manuscript panel
+
+**ED Fig 6g**: "Colocalization of actin patches with Arp3 and NMIIb patches.
+N = 24 neurons for Arp3 and 31 neurons for NMIIb from 3 independent
+experiments. ***p < 0.001 by Two-tailed Mann-Whitney test."
+
+Source Data: `ED Fig 6g`.
+
+## Outputs
+
+- One violin-plot PDF (`ggsave` at line 190).
+
+## Original G:\ source
+
+G:/Figure S6_myosin/Fig. S6g/201002_ICC_extFig. 6g/Arp3A488_PhallRho/WT/Airyscan/Profiles/Patch_profile_Corr.Rmd
+-->
 
 Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
 

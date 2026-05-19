@@ -3,9 +3,32 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Actin retrograde-flow velocity, extending vs retracting tips
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads the per-neurite retrograde-flow velocity table produced upstream by
+the kymograph-slope extractor (`edfig03q_actin_radial_flow_kymo.Rmd`) and
+plots the paired extending vs. retracting comparison per neuron. One violin
++ boxplot PDF is written (`ggsave` at line 119).
+
+## Manuscript panel
+
+**ED Fig 3q**: "Retrograde actin flow rates at the neurite tips of extending
+and retracting neurites. N = 119 neurons from 3 experiments. ***p < 0.001 by
+Two-tailed paired t-test."
+
+Source Data: `ED Fig 3q`.
+
+## Outputs
+
+- One violin + boxplot PDF (`ggsave` at line 119).
+
+## Original G:\ source
+
+G:/Figure S3_Arp3/Fig. S3q/ActinRF_nested_Lifeact_extfig. 3q/R_scripts/actinRF.Rmd
+-->
 
 
 

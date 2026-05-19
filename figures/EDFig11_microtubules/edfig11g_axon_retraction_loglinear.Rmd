@@ -3,9 +3,40 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Axon retraction frequency across DIV stages (microtubule-kink occurrence)
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads in-line count tables (DIV-1 to DIV-4, retracted vs non-retracted axon
+counts and microtubule-kink occurrence) and constructs the contingency
+tables for the chi-square analyses in Fig 5f, Fig 5g and ED Fig 11g. Three
+PDFs are written (`ggsave` at lines 140, 164, 187) producing the stacked bar
+plots of category frequencies.
+
+## Manuscript panels
+
+- **Fig 5f**: "Stacked bar plot summarizing the occurrence of microtubule
+  kinks in the minor neurites of DIV-1 to DIV-4 neurons. N = 16 DIV-1, 57
+  DIV-2, 29 DIV-3 and 25 DIV-4 polarized neurons from 6 experiments.
+  Two-tailed chi-square test: chi2 = 3.83, p >= 0.05."
+- **Fig 5g**: "Stacked bar plot summarizing the occurrence of microtubule
+  kinks in the axons of DIV-1 to DIV-4 neurons. Data source is the same as
+  (f). Two-tailed chi-square test: chi2 = 9.19, p < 0.05."
+- **ED Fig 11g**: "Stacked bar plot summarizing the occurrence of microtubule
+  kinks in retracted and non-retracted axons. N = 127 polarized neurons from
+  6 experiments. Two-tailed chi-square test: chi2 = 72.024, p < 0.001."
+
+Source Data: `Fig 5f`, `Fig 5g`, `ED Fig 11g`.
+
+## Outputs
+
+- Three stacked bar-plot PDFs (`ggsave` at lines 140, 164, 187).
+
+## Original G:\ source
+
+G:/Figure S11_Microtubules/Fig. S11f/R_scripts/Axon_retraction_count.Rmd
+-->
 
 ```{r message=FALSE, warning=FALSE}
 library(tidyverse)

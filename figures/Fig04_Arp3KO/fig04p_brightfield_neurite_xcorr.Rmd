@@ -3,6 +3,38 @@ title: "R Notebook"
 output: html_notebook
 ---
 
+<!--
+# Lag cross-correlation of neurite-tip velocity vs soma intensity (brightfield, WT vs Arp3 KO)
+
+## What this file does
+
+Reads per-cell brightfield-derived neurite-tip velocity and soma-intensity
+tables (data pasted as in-line tibbles in this Rmd) for WT and Arp3 KO
+2D-cultured neurons. For each neuron the local-detrended growth velocity is
+cross-correlated against the change of soma intensity, and CCF curves are
+pooled to a mean +/- SD across the cohort. Six PDFs are written (`ggsave`
+at lines 157, 327, 374, 602, 744, 785) including the CCF-curve PDFs for
+Fig 4p and the per-genotype extension / retraction velocity comparisons.
+
+## Manuscript panel
+
+**Fig 4p**: "Quantification of extension and retraction velocities of WT and
+Arp3 KO neurites in in vitro culture. N = 100 WT neurons from 4 experiments
+and 117 Arp3 KO neurons from 6 experiments. ***p < 0.001; **p < 0.01; ns,
+p >= 0.05 by Kruskal-Wallis test followed by Dunn's post-hoc test with
+Bonferroni correction. Exact P values are shown."
+
+Source Data: `Fig 4p`.
+
+## Outputs
+
+- Six PDFs (`ggsave` at lines 157, 327, 374, 602, 744, 785).
+
+## Original G:\ source
+
+G:/Figure 4_Arp3KO/Fig. 4p/R_scripts/Neurite activity corr_2.Rmd
+-->
+
 Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}

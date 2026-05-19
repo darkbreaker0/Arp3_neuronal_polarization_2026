@@ -3,9 +3,37 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Lag cross-correlation of neurite-tip velocity vs KIF5C1-560 and actin intensity
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads paired per-neurite kymograph tip-intensity CSVs (`Actin_tip*.csv`,
+`Kif5C_tip*.csv`, `Kif5C_neurite*.csv` from per-cell subfolders; lines 64, 94,
+123) for two-channel Lifeact-mScarlet + KIF5C1-560-mNeonGreen movies. For
+each neurite the local-detrended growth velocity is cross-correlated against
+the local KIF5C1-560 intensity profile and pooled across the DIV-2 cohort.
+Three CCF-curve PDFs are written (`ggsave` at lines 371, 703, 1013).
+
+## Manuscript panel
+
+**ED Fig 3m**: "Image of a DIV-2 neuron expressing Lifeact-mScarlet and
+KIF5C1-560-mNeonGreen. White arrowhead points to the neurite transiently
+acquiring KIF5C1-560. 3 independent experiments recapitulated the results."
+
+(The R script here feeds the quantitative ED Fig 3o CCF curve associated with
+the ED Fig 3m image.)
+
+Source Data: `ED Fig 3m`.
+
+## Outputs
+
+- Three CCF-curve PDFs (`ggsave` at lines 371, 703, 1013).
+
+## Original G:\ source
+
+G:/Figure S3_Arp3/Fig. S3m/170811_KIF5CGFP-LifeActRFP_20170811_172029/Neurite activity corr.Rmd
+-->
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 #library(pracma)

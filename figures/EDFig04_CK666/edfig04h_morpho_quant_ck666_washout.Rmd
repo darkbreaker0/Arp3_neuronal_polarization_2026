@@ -2,6 +2,38 @@
 title: "R Notebook"
 output: html_notebook
 ---
+
+<!--
+# Longest-neurite-length quantification across DMSO / CK-666 / washout
+
+## What this file does
+
+Reads per-neuron longest-neurite-length CSVs from `folder_path` (`list.files`
+at line 53, loaded line 57) for the CK-666 washout experiment (DMSO,
+CK-666-treated, washout from DMSO, washout from CK-666). Per-neuron length
+distributions are pooled by condition and overlaid as violin + boxplot with
+a bar-chart summary. Two PDFs are written (`ggsave` at lines 143, 242).
+
+## Manuscript panel
+
+**ED Fig 4h**: "The longest neurite length of neurons treated with CK-666 or
+control (DMSO) and after washout. Data point number N represents the number
+of neurons from 3 independent experiments: before treatment (Before), 98;
+DMSO treated, 146; CK-666 treated, 161; washout from DMSO, 68; washout from
+CK666, 124. Two-tailed Kruskal-Wallis test followed by Dunn's post-hoc test
+with Bonferroni correction. Exact P values are shown."
+
+Source Data: `ED Fig 4h`.
+
+## Outputs
+
+- Two PDFs (`ggsave` at lines 143, 242).
+
+## Original G:\ source
+
+G:/Figure S4_CK666/Fig. S4h/Morpho_quant.Rmd
+-->
+
 ```{r message=FALSE}
 
 library(pracma)

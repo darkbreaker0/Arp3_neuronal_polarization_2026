@@ -3,9 +3,42 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Microperfusion of CK-666 or para-aminoblebbistatin: actin intensity + neurite-length response timecourse
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads per-experiment ROI intensity CSVs (`*int.csv` via `list.files` at line
+60, loaded line 63) and per-experiment neurite-length CSVs (`length.csv` via
+`list.files` at line 333, loaded line 336) for local perfusion of CK-666 or
+para-aminoblebbistatin at the soma. For each event the actin / GFP intensity
+and neurite length are sampled across Pre / Act / Post timepoints, plotted
+as line plots vs time with the perfusion-window band shaded, and pooled into
+violin / boxplot summaries. Six PDFs are written (`ggsave` at lines 241,
+433, 478, 543, 617, 701).
+
+## Manuscript panels
+
+- **Fig 3r**: "Percentage of neurons perfused with DMSO or CK-666 showing
+  retrograde actin wave."
+- **ED Fig 4b** / **ED Fig 4c** - CK-666 microperfusion extension /
+  retraction duration and velocity.
+- **ED Fig 4h** - longest-neurite length after CK-666 + washout.
+- **ED Fig 5i**: "Length changes upon micro-perfusion of CK-666 at the
+  soma."
+- **ED Fig 7f**: "Length changes upon local perfusion of 40 uM
+  para-aminoblebbistatin at the soma."
+
+Source Data: `Fig 3r`, `ED Fig 4b/c/h`, `ED Fig 5i`, `ED Fig 7f`.
+
+## Outputs
+
+- Six PDFs (`ggsave` at lines 241, 433, 478, 543, 617, 701).
+
+## Original G:\ source
+
+G:/Figure 3_Arp3/Fig. 3o-r_local_perfusion/R_scripts/Neurite activity corr.Rmd
+-->
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 library(pracma)

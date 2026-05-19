@@ -3,9 +3,33 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Kymograph-derived actin retrograde-flow velocity at neurite tips
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads pre-thresholded kymograph TIFFs and per-line-track CSVs derived from
+Lifeact movies of growth cones, extracts the slopes of retrograde-flow traces
+(actin moving inward from the periphery), and produces per-neurite
+distributions of retrograde-flow velocity. One violin + boxplot PDF is
+written (`ggsave` at line 169).
+
+## Manuscript panel
+
+**ED Fig 3q**: "Retrograde actin flow rates at the neurite tips of extending
+and retracting neurites. N = 119 neurons from 3 experiments. ***p < 0.001 by
+Two-tailed paired t-test."
+
+Source Data: `ED Fig 3q`.
+
+## Outputs
+
+- One violin + boxplot PDF (`ggsave` at line 169).
+
+## Original G:\ source
+
+G:/Figure S3_Arp3/Fig. S3q/ActinRF_nested_Lifeact_extfig. 3q/240227/GC/240227_kymo/kymo_actinRF.Rmd
+-->
 
 
 

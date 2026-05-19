@@ -2,6 +2,42 @@
 title: "R Notebook"
 output: html_notebook
 ---
+
+<!--
+# EB3 integrated tip intensity per neurite (before / CK-666 / washout)
+
+## What this file does
+
+Reads ComDet trajectory CSVs (`Tra_file` from `Path_1`, lines 49, 63;
+subfolder enumeration at line 242) and saved `df_list.RData` cache (line
+250) for the neurite-tip EB3 imaging cohort. The integrated EB3 intensity
+within the actin-defined neurite-tip ROI is computed per cell and per
+condition (before treatment, CK-666, washout) and pooled into the violin +
+boxplot comparison. One PDF is written (`ggsave` at line 217).
+
+## Manuscript panel
+
+**ED Fig 11f**: "Integrated EB3 intensity at the neurite tips before and after
+150 uM CK-666 treatment. The neurite tip region is defined by the actin
+protrusion. N = 50 neurons from 3 experiments. ***p < 0.001; ns, p >= 0.05
+by Two-tailed paired Wilcoxon test."
+
+Source Data: `ED Fig 11f`.
+
+## Outputs
+
+- One violin + boxplot PDF (`ggsave` at line 217).
+
+## NOT to be confused with `edfig11i_soma_eb3_intensity_timecourse.Rmd`
+
+That sibling file uses **soma** ROIs and a **binned timecourse**; this file
+uses **neurite tip** ROIs and a **three-condition** comparison.
+
+## Original G:\ source
+
+G:/Figure S11_Microtubules/Fig. S11f/R_scripts/Patch_analysis.Rmd
+-->
+
 ```{r message=FALSE}
 
 library(pracma)

@@ -3,6 +3,40 @@ title: "WT_KO_Blebbistatin_brightfield"
 output: html_notebook
 ---
 
+<!--
+# Master kymograph consolidator: length-vs-time per neurite class (Fig 5l upstream)
+
+## What this file does
+
+Per-neurite kymograph batch consolidator (a misnomer-name file: original
+`Growth_profiling.Rmd` is actually a kymograph batch consolidator, not a
+growth-profile analysis). Reads per-cell kymograph CSVs across multiple
+imaging batches (170515, 170522, 151209; `list.files(...)` at lines 58, 113,
+168) and produces per-neurite length-vs-time profiles, classifies each
+neurite as axon / minor and stacks the area / line plots. Four PDFs are
+written (`ggsave` at lines 400, 730, 904, 1105). This file is upstream of
+all four `fig05l_*_neurite_xcorr` wrappers.
+
+## Manuscript panel
+
+**Fig 5l**: "Quantification of extension and retraction duration of DIV-1 WT
+and Arp3 KO neurons treated with blebbistatin. WT: N = 56 control (DMSO)
+and 34 blebbistatin-treated; Arp3 KO: N = 66 control (DMSO) and 67
+blebbistatin-treated from 5 experiments."
+
+Source Data: `Fig 5l` (upstream).
+
+## Outputs
+
+- Four stacked-area / line-plot PDFs (`ggsave` at lines 400, 730, 904, 1105).
+
+## Original G:\ source
+
+G:/Figure 5_myosin/Fig. 5l/R_scripts/Growth_profiling.Rmd
+(`Growth_profiling.Rmd` is a known misnomer: this is a kymograph batch
+consolidator, not a growth-profile analysis.)
+-->
+
 Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}

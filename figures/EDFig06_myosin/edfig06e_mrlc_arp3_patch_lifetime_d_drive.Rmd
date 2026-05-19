@@ -5,6 +5,37 @@ output: html_notebook
 ---
 
 <!--
+# Arp3 / MRLC patch lifetime + diffusion velocity (alternative-cohort variant)
+
+## What this file does
+
+Alternative-cohort variant sourced from `D:\DVElite`. Reads ComDet trajectory
++ MSD CSVs (`Tra_file`, `MSD_file` from `Path_1`, lines 67, 73, 86-87) for
+MRLC and Arp3 patches in growth cones, neurite shafts and soma. Per-track
+moving velocity (from MSD slope) and lifetime are computed per patch, then
+pooled by region. Three PDFs are written (`ggsave` at lines 168, 312, 326)
+producing the violin + boxplot comparisons.
+
+## Manuscript panel
+
+**ED Fig 6e**: "Arp3 and MRLC patch lifetime. For Arp3 patches: N = 2490 for
+patch number at the growth cones, 1203 at the neurite shafts and 2206 at the
+soma from time-lapsed images of 12 neurons from 3 independent experiments.
+For MRLC patches: N = 2995 at the growth cones, 3920 at the neurite shafts
+and 2703 at the soma from time-lapsed images of 11 neurons from 3 independent
+experiments. ***p < 0.001 by Two-tailed Kruskal-Wallis test followed by
+Dunn's post-hoc test with Bonferroni correction. Exact P values are shown."
+
+## Outputs
+
+- Three violin + boxplot PDFs (`ggsave` at lines 168, 312, 326).
+
+## Original D:\ source
+
+D:/DVElite/Myl_patch_quant_ExtFig. 6e/Patch_analysis.Rmd
+-->
+
+<!--
 ================================================================================
   PANEL TARGETS (Lin et al., Nature 2026)
 ================================================================================

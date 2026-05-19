@@ -3,9 +3,36 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# KIF5C1-560 Z-score intensity at extending / pausing / retracting neurite tips
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads paired per-neurite tip-intensity CSVs (`Tip_actin*.csv`, `Tip_Kif5*.csv`
+from per-cell subfolders; lines 68, 103, 128) for DIV-2 neurons co-expressing
+Lifeact-mScarlet and KIF5C1-560-mNeonGreen. Each neurite's tip KIF5C1-560
+intensity is converted to a per-neuron Z-score, classified by growth phase
+(extending / pausing / retracting), and pooled across the cohort. Four PDFs
+are written (`ggsave` at lines 644, 896, 1169, 1659), including the violin
+plot of Z-scored KIF5C1-560 across the three growth phases.
+
+## Manuscript panel
+
+**ED Fig 3n**: "Normalized KIF5C1-560-mNeonGreen intensities as Z-scores at the
+extending, the pausing and the retracting neurites of individual neurons.
+N = 92 neurons from 3 experiments. ***p < 0.001; ns, p >= 0.05 by Two-tailed
+paired Wilcoxon test with Holm correction."
+
+Source Data: `ED Fig 3n`.
+
+## Outputs
+
+- Four PDFs (`ggsave` at lines 644, 896, 1169, 1659).
+
+## Original G:\ source
+
+G:/Figure S3_Arp3/Fig. S3n/Kif5C/Neurite activity corr.Rmd
+-->
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 library(pracma)

@@ -3,9 +3,40 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Western-blot densitometry quantification (Arp3, MRLC, pMRLC vs GAPDH)
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads per-lane band-densitometry tables (`read_*` calls open the per-blot
+intensity tables; the values are pasted in-line in this Rmd) for the Arp3,
+total MRLC and phospho-MRLC immunoblots vs the GAPDH loading control, then
+normalizes each band to the loading control and compares WT vs. Arp3 KO.
+Three PDFs are written (`ggsave` at lines 127, 153, 179) producing the
+boxplot of normalized band intensities per target.
+
+## Manuscript panels
+
+- **Fig 4d**: "Quantification of Arp3 levels in (c). N = 9 samples analyzed
+  in 3 experiments. ***p < 0.001 by Two-tailed t-test."
+- **ED Fig 9i**: "Quantification of Arp3, phospho-MRLC and total MRLC
+  intensities in western blot analysis. **p < 0.01; *p < 0.05; ns, p >= 0.05
+  by Kruskal-Wallis test followed by Dunn's post-hoc test with Bonferroni
+  correction. Exact P values are shown."
+
+Source Data: `Fig 4d`, `ED Fig 9i`.
+
+## Outputs
+
+- Three boxplot PDFs (`ggsave` at lines 127, 153, 179).
+
+## Original G:\ source
+
+G:/Figure S9_Arp3KO/Fig. S9h/3.1.7_MLC2 in Arp3 KO/read_stat.Rmd
+(`read_stat.Rmd` is a known misnomer: this instance is the Western-blot
+densitometry analysis, not a coloc analysis.)
+-->
+
 ```{r message=FALSE}
 library(pracma)
 #library(peakPick)

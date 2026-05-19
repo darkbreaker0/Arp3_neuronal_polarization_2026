@@ -3,9 +3,37 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Lag cross-correlation between neurite-tip growth velocity and actin / LynTM intensity in polarized neurons
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads per-neurite axon-wave and minor-wave CSVs (`axon_wave*.csv`,
+`minor_wave*.csv`; lines 69-74, 105-106) plus paired actin and LynTM
+tip-intensity profiles from polarized DIV-3 neurons, computes lag
+cross-correlation between neurite-tip growth velocity and the change of actin
+or LynTM at the tip, and pools across cells to a mean +/- SD CCF curve. Six
+CCF-curve PDFs are written (`ggsave` at lines 177, 207, 445, 529, 597, 853).
+
+## Manuscript panels
+
+- **ED Fig 2l**: "Neurite extension-retraction cross-correlation. Values are
+  plotted as mean +/- SD. N = 75 neurons from 4 experiments."
+- **ED Fig 2m**: "Cross-correlation of temporal profiles of neurons after
+  polarization. Values are plotted as mean of correlation functions. Data
+  source is the same as (l)."
+
+Source Data: `ED Fig 2l`, `ED Fig 2m`.
+
+## Outputs
+
+- Six CCF-curve PDFs (`ggsave` at lines 177, 207, 445, 529, 597, 853).
+
+## Original G:\ source
+
+G:/Figure S2_actin/Fig. S2h/Polarized_neurons/R_scripts/wave_count.Rmd
+(filename is a misnomer - file is a CCF analysis, not a wave-count.)
+-->
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 library(pracma)

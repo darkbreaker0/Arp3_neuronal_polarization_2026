@@ -3,9 +3,38 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Polarized-neuron extension / retraction duration + velocity (with side-output neurite-tip CCF)
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads per-cell soma-actin and per-wave occurrence CSVs (`soma_actin*.csv`,
+`wave*.csv` from per-cell subfolders; lines 58, 63, 74, 82) for DIV-2/DIV-3
+polarized neurons. Per-neurite extension and retraction segments are
+classified and per-segment duration + velocity are pooled by neurite type
+(axon vs minor neurite). The same data flow yields side-output CCF curves
+for neurite growth vs soma actin (Fig 2l-aligned). Six PDFs are written
+(`ggsave` at lines 144, 204, 382, 466, 534, 790).
+
+## Manuscript panels
+
+- **Fig 2j**: "Extension and retraction duration of neurites before
+  polarization, axon and minor neurites after polarization. N = 48 neurons
+  from 8 experiments."
+- **Fig 2k**: "Extension and retraction velocities of neurites before
+  polarization, axon and minor neurites after polarization. Data source is
+  the same as (j)."
+
+Source Data: `Fig 2j`, `Fig 2k`, `ED Fig 2i`, `ED Fig 2j`, `ED Fig 2k`.
+
+## Outputs
+
+- Six PDFs (`ggsave` at lines 144, 204, 382, 466, 534, 790).
+
+## Original G:\ source
+
+G:/Figure 2_actin wave/Fig. 2i/Actin_wave/Neurite activity corr.Rmd
+-->
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 library(pracma)

@@ -3,9 +3,35 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Arp3 / MRLC / F-actin soma-patch colocalization (consolidator)
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads per-cell line-profile correlation tables for the three pairwise
+combinations (actin-Arp3, Arp3-MRLC, actin-MRLC) at the soma (`csv_list` from
+`Path_1`, lines 43, 53), pools them into a long-form table, and produces the
+joint violin plot for ED Fig 6 soma colocalization (`ggsave` at line 153).
+
+## Manuscript panel
+
+**ED Fig 6d**: "Colocalization of indicated proteins at the soma. N = 82
+neurons from 4 independent experiments. ***p < 0.001; ns, p >= 0.05 by
+Two-tailed paired Wilcoxon test with Holm correction."
+
+Source Data: `ED Fig 6 soma coloc`.
+
+## Outputs
+
+- One violin-plot PDF (`ggsave` at line 153).
+
+## Original G:\ source
+
+G:/Figure S6_myosin/Arp3_MLC_coloc/soma/read_stat.Rmd
+(`read_stat.Rmd` is a known misnomer: this instance is the Arp3/MRLC soma
+coloc analysis, not the Western-blot variant.)
+-->
+
 ```{r message=FALSE}
 library(pracma)
 library(peakPick)

@@ -3,9 +3,35 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Lag cross-correlation of somatic actin intensity change vs binarized actin-wave occurrence
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads per-cell somatic actin-intensity CSVs (`soma_actin*.csv`) and per-wave
+occurrence CSVs (`wave*.csv`) from per-cell subfolders (lines 58, 63, 74,
+82). For each cell the local-detrended change of soma actin intensity is
+cross-correlated against the binarized actin-wave occurrence trace. CCF
+curves are pooled to a mean +/- SD across the cohort (N = 23 neurons from 3
+experiments). Six PDFs are written (`ggsave` at lines 144, 208, 390, 474,
+542, 801).
+
+## Manuscript panel
+
+**Fig 2c**: "Cross-correlation between the changes of soma actin intensity
+and the binarized occurrence of actin waves. Values are plotted as mean +/-
+SD. N = 23 neurons from 3 experiments."
+
+Source Data: `Fig 2c`.
+
+## Outputs
+
+- Six PDFs (`ggsave` at lines 144, 208, 390, 474, 542, 801).
+
+## Original G:\ source
+
+G:/Figure 2_actin wave/Fig. 2c/Actin_wave_Fig. 2di_ExtFig.2a/R_script/Neurite activity corr.Rmd
+-->
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 library(pracma)

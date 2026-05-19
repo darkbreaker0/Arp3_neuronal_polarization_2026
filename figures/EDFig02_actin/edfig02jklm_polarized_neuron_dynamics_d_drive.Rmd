@@ -3,9 +3,42 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Polarized-neuron extension / retraction duration + velocity (alternative-cohort variant)
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Alternative-cohort variant of `edfig02jk_polarized_neurons_duration_velocity.Rmd`
+sourced from `D:\DVElite\Polarized_neurons` rather than the published G:\
+cohort. Reads `Tip_actin_*.csv` and `Actin_neurite*.csv` per-cell tip / neurite
+profiles (lines 64, 97, 130) and computes per-segment extension / retraction
+duration and velocity for axon vs. minor neurite before and after polarization.
+Five violin + boxplot PDFs are written (`ggsave` at lines 618, 872, 1214,
+1350, 1473).
+
+## Manuscript panels
+
+- **ED Fig 2j** - extension / retraction duration (axon vs minor neurite,
+  before vs after polarization).
+- **ED Fig 2k** - extension / retraction velocity (same source as j).
+- **ED Fig 2l** - "Neurite extension-retraction cross-correlation. Values are
+  plotted as mean +/- SD. N = 75 neurons from 4 experiments."
+- **ED Fig 2m** - "Cross-correlation of temporal profiles of neurons after
+  polarization. Values are plotted as mean of correlation functions. Data
+  source is the same as (l)."
+
+Verbatim panel legends are in the canonical sibling
+`edfig02jk_polarized_neurons_duration_velocity.Rmd`.
+
+## Outputs
+
+- Five PDFs (`ggsave` at lines 618, 872, 1214, 1350, 1473).
+
+## Original D:\ source
+
+D:/DVElite/Polarized_neurons/R_scripts/Neurite activity corr.Rmd
+(alternative-cohort variant; the canonical published file is on G:\)
+-->
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 library(pracma)

@@ -2,6 +2,43 @@
 title: "R Notebook"
 output: html_notebook
 ---
+
+<!--
+# Arp3 patch moving velocity + lifetime from TrackMate trajectories
+
+## What this file does
+
+Reads TrackMate-exported per-patch trajectory CSVs (`Tra_file`) and MSD CSVs
+(`MSD_file`) per cell from `Path_1` (lines 45, 51, 64-65; subfolder
+enumeration at line 329). Per-track moving velocity is derived from the
+MSD slope and per-track lifetime is taken from trajectory duration, then
+pooled by ROI class (growth cone, neurite shaft, soma). Two PDFs are written
+(`ggsave` at lines 127, 236) producing the violin + boxplot comparisons.
+
+## Manuscript panels
+
+- **ED Fig 3e**: "Moving velocity of the Arp3 patches. N = 2490 for patch
+  number at the growth cones, 1203 at the neurite shafts and 2206 at the
+  soma from time-lapsed images of 12 neurons from 3 independent experiments.
+  ***p < 0.001; ns, p >= 0.05 by Kruskal-Wallis test followed by Dunn's
+  post-hoc test with Bonferroni correction. Exact P values are shown."
+- **ED Fig 3f**: "Arp3 patch lifetime. N = 2490 for patch number at the
+  growth cones, 1203 at the neurite shafts and 2206 at the soma from
+  time-lapsed images of 12 neurons from 3 independent experiments.
+  ***p < 0.001; *p < 0.05 by Kruskal-Wallis test followed by Dunn's post-hoc
+  test with Bonferroni correction. Exact P values are shown."
+
+Source Data: `ED Fig 3e`, `ED Fig 3f`.
+
+## Outputs
+
+- Two violin + boxplot PDFs (`ggsave` at lines 127, 236).
+
+## Original G:\ source
+
+G:/Figure S3_Arp3/Fig. S3e/Patch_analysis.Rmd
+-->
+
 ```{r message=FALSE}
 
 library(pracma)

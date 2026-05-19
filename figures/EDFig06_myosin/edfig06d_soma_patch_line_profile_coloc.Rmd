@@ -3,9 +3,33 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Arp3 / actin / MRLC soma-patch line-profile colocalization
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads paired soma-patch line-profile CSVs `Myl.csv`, `Actin.csv` and
+`Arp3.csv` per neuron (lines 55, 60, 65, 76, 80), computes per-patch
+correlation between the three pairwise intensity-profile combinations
+(actin-Arp3, Arp3-MRLC, actin-MRLC), and produces the joint violin-plot
+comparison (`ggsave` at line 293).
+
+## Manuscript panel
+
+**ED Fig 6d**: "Colocalization of indicated proteins at the soma. N = 82
+neurons from 4 independent experiments. ***p < 0.001; ns, p >= 0.05 by
+Two-tailed paired Wilcoxon test with Holm correction."
+
+Source Data: `ED Fig 6d`.
+
+## Outputs
+
+- One violin-plot PDF (`ggsave` at line 293).
+
+## Original G:\ source
+
+G:/Figure S6_myosin/Fig. S6d/SomaPatch_LineProf_extFig. 6d/Patch_profile_Corr.Rmd
+-->
 
 Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
 

@@ -3,9 +3,40 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Extension / retraction duration and velocity in polarized neurons
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads per-neurite tip-velocity CSVs (`Tip_actin_*.csv`, `Actin_neurite*.csv`
+from per-cell subfolders, lines 98 onward) for DIV-3 polarized neurons, then
+classifies each growth segment as extension or retraction and computes
+per-segment duration and velocity. Pooled distributions of axon vs. minor
+neurite, before vs. after polarization, are written as violin + boxplot PDFs
+(`ggsave` at lines 497, 751, 1095, 1228, 1351).
+
+## Manuscript panel
+
+**ED Fig 2j**: "Extension and retraction duration of axon and minor neurites
+before and after polarization. N = 107 neurons from 4 experiments. ***p < 0.001;
+**p < 0.01; *p < 0.05 by Kruskal-Wallis test followed by Dunn's post-hoc test
+with Bonferroni correction. Exact P values are shown."
+
+**ED Fig 2k**: "Extension and retraction velocities of axon and minor neurites
+before and after polarization. Data source is the same as (j). ***p < 0.001;
+ns, p >= 0.05 by Kruskal-Wallis test followed by Dunn's post-hoc test with
+Bonferroni correction. Exact P values are shown."
+
+Source Data: `ED Fig 2j`, `ED Fig 2k`.
+
+## Outputs
+
+- Five violin + boxplot PDFs (`ggsave` at lines 497, 751, 1095, 1228, 1351).
+
+## Original G:\ source
+
+G:/Figure S2_actin/Fig. S2h/Polarized_neurons/R_scripts/Neurite activity corr.Rmd
+-->
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 # Package setup for signal processing, statistics, and plotting.

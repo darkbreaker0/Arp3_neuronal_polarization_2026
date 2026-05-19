@@ -3,9 +3,33 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# MRLC patch size + count timecourse after CK-666 treatment
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads per-neuron MRLC patch CSVs (one CSV per timepoint, `list.files` pattern
+at line 50, loaded at line 59) tracking MRLC condensate size and count
+before and after 150 uM CK-666 treatment. Per-cell timecourses are pooled
+into a population mean +/- SE ribbon over time. Two PDFs are written
+(`ggsave` at lines 104, 137) showing the mean patch-size and mean patch-count
+trajectories.
+
+## Manuscript panel
+
+**ED Fig 7l**: "MRLC patch size and number following CK-666 treatment. Values
+are plotted as mean +/- SEM. N = 62 neurons from 3 independent experiments."
+
+Source Data: `ED Fig 7l`.
+
+## Outputs
+
+- Two line-plot PDFs (`ggsave` at lines 104, 137).
+
+## Original G:\ source
+
+G:/Figure S7_PARac1_CK666/Fig. S7l/MRLC_patch_size/MRLC_patch_size.Rmd
+-->
 
 Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
 

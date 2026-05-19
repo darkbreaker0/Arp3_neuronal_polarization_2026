@@ -3,9 +3,34 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Actin-filament orientation distribution from cryo-EM tomograms (WT vs Arp3 KO)
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+## What this file does
+
+Reads per-tomogram actin-filament orientation tables (angles relative to the
+leading edge, exported from the segmentation + tracing pipeline; data pasted
+into in-line tibbles in this Rmd). For each tomogram an orientation
+histogram (or rose-density plot) is computed; orientations are then pooled
+across the cohort (5 WT, 8 Arp3 KO tomograms) into the mean +/- SD curve.
+Two PDFs are written (`ggsave` at lines 233, 249).
+
+## Manuscript panel
+
+**ED Fig 10e**: "Orientation distribution of actin filaments. N = 5 WT
+tomograms of 4 neurons and 8 Arp3 KO tomograms of 8 neurons. Values are
+plotted as mean +/- SD."
+
+Source Data: `ED Fig 10e`.
+
+## Outputs
+
+- Two orientation-distribution PDFs (`ggsave` at lines 233, 249).
+
+## Original G:\ source
+
+G:/Figure S10_EM/Fig. S10f/R_scripts/actin_fila_quant.Rmd
+-->
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 library(pracma)

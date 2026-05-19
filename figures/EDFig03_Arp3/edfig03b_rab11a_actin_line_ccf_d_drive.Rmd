@@ -3,9 +3,31 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Rab11a / F-actin soma-patch line-profile correlation (alternative-cohort variant)
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Alternative-cohort variant sourced from `D:\DVElite` rather than the
+published G:\ cohort. Reads paired soma-patch line-profile CSVs `Rab11.csv`
+and `Actin.csv` per neuron (lines 52, 57, 67, 71) and computes per-patch
+correlation between the two intensity profiles. One violin-plot PDF is
+written (`ggsave` at line 201).
+
+## Manuscript panel
+
+**ED Fig 3b** - Rab11a-actin colocalization arm of the joint panel.
+Verbatim legend is in the canonical sibling
+`edfig03b_factin_rab11a_line_profile_coloc.Rmd`.
+
+## Outputs
+
+- One violin-plot PDF (`ggsave` at line 201).
+
+## Original D:\ source
+
+D:/DVElite/Rab11aEGFP_ExtFig. 3b/R_script/Patch_profile_Corr.Rmd
+-->
 
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}

@@ -3,9 +3,38 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Soma actin / wave-occurrence CCF (alternative-cohort variant)
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Alternative-cohort variant sourced from `D:\DVElite`. Reads per-cell
+somatic actin-intensity CSVs (`soma_actin*.csv`) and per-wave occurrence
+CSVs (`wave*.csv`) from per-cell subfolders (lines 58, 63, 74, 82). For each
+cell the local-detrended change of soma actin intensity is cross-correlated
+against the binarized actin-wave occurrence trace. Six PDFs are written
+(`ggsave` at lines 144, 204, 382, 466, 538, 794).
+
+## Manuscript panels
+
+- **Fig 2d** - per-event somatic actin intensity at wave emergence vs before.
+- **Fig 2i** - actin-wave frequency in unpolarized / polarizing / polarized
+  neurons.
+- **ED Fig 2a**: "Percentage of actin waves co-occurring with increasing soma
+  actin intensity. N = 23 neurons from 3 independent experiments. Values are
+  plotted as mean +/- SD."
+
+Verbatim panel legends are in the canonical sibling
+`fig02c_neurite_actin_xcorr.Rmd` and the dedicated Fig 2d / 2i files.
+
+## Outputs
+
+- Six PDFs (`ggsave` at lines 144, 204, 382, 466, 538, 794).
+
+## Original D:\ source
+
+D:/DVElite/Actin_wave_Fig. 2di_ExtFig.2a/R_script/Neurite activity corr.Rmd
+-->
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 library(pracma)

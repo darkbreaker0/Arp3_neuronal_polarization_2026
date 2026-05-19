@@ -3,9 +3,37 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+<!--
+# Lag cross-correlation between neurite-tip velocity and soma actin / neurite-tip actin
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+## What this file does
+
+Reads per-neurite tip-intensity CSVs (`Result*.csv` from per-cell subfolders,
+lines 52, 57, 87, 123) for DIV-1 and DIV-2 unpolarized neurons. For each
+neurite the local-detrended growth velocity is cross-correlated against the
+change of actin intensity at the tip and the change of soma actin intensity.
+CCF curves are pooled to a mean +/- SD across the cohort (N = 146 neurons
+from 5 experiments). Six PDFs are written (`ggsave` at lines 518, 529, 535,
+562, 875, 890 including `ExtendingNeuriteFreq.pdf`).
+
+## Manuscript panel
+
+**Fig 2e**: "Cross-correlation of the indicated pairs of temporal profiles.
+Correlation peaks and valleys are labeled with lag time. Values are plotted
+as mean of correlation functions of N = 146 neurons from 5 experiments. SD
+area is shown in Extended Data Fig. 2c."
+
+Source Data: `Fig 2e`.
+
+## Outputs
+
+- Six PDFs incl. `ExtendingNeuriteFreq.pdf` (`ggsave` at lines 518, 529, 535,
+  562, 875, 890).
+
+## Original G:\ source
+
+G:/Figure 2_actin wave/Fig. 2e/R_scripts/Neurite activity corr.Rmd
+-->
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 library(pracma)
