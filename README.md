@@ -45,10 +45,6 @@ Möhl + Aghabeig) is **not bundled in this mirror** but is published in
 the Zenodo deposit and at
 <https://github.com/darkbreaker0/IJ_NeuriteGrowthScript>.
 
-The third-party EM MATLAB filament-tracking pipeline and TOM Toolbox
-utilities are **not redistributed** via this mirror; obtain them from
-the Bradke lab and the Baumeister group (MPI-Biochemistry) respectively.
-
 ## Citation
 
 Please cite both the manuscript and the Zenodo deposit. A
