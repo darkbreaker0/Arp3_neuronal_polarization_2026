@@ -15,7 +15,7 @@ output: html_notebook
 
   Together they feed the downstream consolidator
   `figures/Fig03_Arp3/fig03n_parac1_gc_soma_length.Rmd`, which builds the
-  multi-condition Kruskal-Wallis + Dunn comparison for Fig 3n and ED Fig 5b.
+  multi-condition comparison for Fig 3n and ED Fig 5b.
 
   -------- INPUT CONTRACT --------
   The wrapper MUST prepare two data frames BEFORE including this template:
@@ -57,7 +57,7 @@ output: html_notebook
   PANEL TARGETS (Lin et al., Nature 2026)
 ================================================================================
   Fig 3n:  "Length difference induced by activation of PA-Rac1 and variants."
-           Kruskal-Wallis + Dunn's, Bonferroni-adjusted, across:
+           Multi-condition comparison across:
               - PA-Rac1 / WT neurons / GC (N=31 events)
               - PA-Rac1 / WT neurons / soma (N=22)
               - PA-Rac1_T17N / WT (N=20)         <- THIS TEMPLATE (T17N wrapper)

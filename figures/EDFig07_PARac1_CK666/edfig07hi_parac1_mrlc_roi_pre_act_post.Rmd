@@ -17,9 +17,8 @@ cone is sampled at three timepoints:
 
 Each intensity is mean-centered per ROI (subtract per-ROI 3-frame mean)
 so the y-axis shows `Intensity - mean` rather than absolute intensity.
-The three timepoints are then compared by **paired Wilcoxon signed-rank
-test** (one ROI = one paired triplet); `stat_compare_means` does the
-Pre/Act, Act/Post, Pre/Post pairs.
+The three timepoints are then compared as paired triplets (one ROI =
+one paired triplet) across the Pre/Act, Act/Post, Pre/Post pairings.
 
 Outputs `Myl.eps` (MRLC violin) and `Actin.eps` (Actin violin) plots
 next to this Rmd, each showing the per-ROI lines + violin shape +

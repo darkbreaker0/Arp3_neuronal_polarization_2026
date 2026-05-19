@@ -63,7 +63,7 @@ output: html_notebook
   experimental batch (DIV stage + image-pipeline stage) and the
   consolidator at edfig11f_eb3_tip_integrated_intensity.Rmd aggregates.
 
-  Stat: paired Wilcoxon (Before vs CK-666 vs WO; pairwise).
+  Comparison: paired Before vs CK-666 vs Washout (pairwise within cell).
 
 ================================================================================
   REPO STATUS

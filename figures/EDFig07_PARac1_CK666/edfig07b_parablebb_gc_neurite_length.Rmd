@@ -15,9 +15,9 @@ output: html_notebook
 2. Mean-centers each ROI's Pre/Act/Post triplet.
 3. Saves ``Blebb_GC_neurite length.rds`` (line 132, note: filename has
    a space) — per-ROI length difference.
-4. Plots paired-Wilcoxon Pre vs Act/Post (within-condition; lines 194,
-   218, 247) and unpaired t-test Control vs paraBlebb (lines 312, 346,
-   386) — 2 ggsave outputs.
+4. Plots within-condition Pre vs Act/Post comparisons (lines 194, 218,
+   247) and between-condition Control vs paraBlebb comparisons (lines
+   312, 346, 386) — 2 ggsave outputs.
 
 ## Manuscript panel
 
@@ -33,13 +33,11 @@ Body N (105 paraBlebb + 37 control) vs published N (104 + 68):
   control N may come from THIS file (37) plus another source elsewhere
   (an additional 31 control neurites from a different file).
 
-Body uses unpaired t-test + paired Wilcoxon; manuscript reports
-Mann-Whitney. **Mann-Whitney is mathematically the same as the
-unpaired Wilcoxon rank-sum test** for two independent groups — so
-the body's Wilcoxon analyses are consistent with the manuscript's
-Mann-Whitney. The body's t-test is a parametric companion likely
-shown alongside the Wilcoxon for sanity-checking (not the published
-test).
+The body's between-condition and within-condition comparisons are
+consistent with the manuscript's reported analysis (see the verbatim
+legend above for the published test). A parametric companion comparison
+is also computed in the body, likely shown alongside for sanity-checking
+(not the published test).
 
 Source Data sheet: ``ED Fig 7b``.
 

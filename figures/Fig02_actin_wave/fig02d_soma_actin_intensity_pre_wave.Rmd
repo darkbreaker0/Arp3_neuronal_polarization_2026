@@ -11,8 +11,8 @@ output: html_notebook
 
 Reads ``wave_soma_int*.csv`` files and computes per-wave-event somatic
 actin intensity at 3 timepoints (line 85: ``rep(1: (nrow(df)/3), each=3)``
-indexes per-wave triplets). Paired Wilcoxon at lines 191, 225 compares
-the timepoints within wave events. Three ggsave outputs (lines 238, 470,
+indexes per-wave triplets). The timepoints are compared within wave events
+as paired triplets (lines 191, 225). Three ggsave outputs (lines 238, 470,
 630).
 
 ## Manuscript panel

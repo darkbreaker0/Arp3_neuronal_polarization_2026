@@ -5,7 +5,7 @@ output: html_notebook
 
 <!--
 # CONSOLIDATOR (STAGE-2) for Fig 3n + ED Fig 5b — multi-condition
-# Welch t-test comparing PA-Rac1 activation effects across 5 conditions
+# comparison of PA-Rac1 activation effects across 5 conditions
 # (WT GC, WT Soma, Arp3 KO, PA-Rac1-C450M, PA-Rac1-T17N).
 
 ## What this file does
@@ -22,16 +22,15 @@ precursor outputs (lines 221-229):
 
 Then ``rbind()``s 5 condition dataframes (WT_GC, WT_Soma, KO,
 C450M, T17N) for both length and actin intensity (lines 231-234), and
-plots multi-pairwise Welch t-tests with ``stat_compare_means(method =
-"t.test", paired = F)`` (lines 275, 327).
+plots the multi-pairwise comparison across conditions (lines 275, 327).
 
 Outputs:
 - ``Actin_intensity.pdf`` (line 289) — multi-condition actin intensity
   difference (Pre vs Act) → **ED Fig 5b**.
 - ``Length.pdf`` (line 341) — multi-condition length difference → **Fig 3n**.
 - ``PARac1WT_soma_actinInt.eps`` (lines 380, 387 — duplicate save)
-  — PA-Rac1 WT soma-only Pre vs Act actin intensity with paired
-  Wilcoxon. UNCERTAIN — possibly a Fig 3m supporting plot or a
+  — PA-Rac1 WT soma-only Pre vs Act actin intensity within-cell
+  comparison. UNCERTAIN — possibly a Fig 3m supporting plot or a
   diagnostic version.
 
 ## Manuscript panels

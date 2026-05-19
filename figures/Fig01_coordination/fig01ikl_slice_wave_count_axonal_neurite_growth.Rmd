@@ -12,14 +12,13 @@ output: html_notebook
 Body has 3 analytical sections producing distinct outputs:
 
 1. **Wave count** (lines 76-145): reads per-cell wave-count CSVs;
-   plots wave_count.pdf with optional t-test. **→ Fig 1i** (line 84
-   of docx: "Frequency of somatic actin waves in unpolarized neurons
-   of E15.5 cortical slice. N = 26 neurons from 3 experiments.").
-2. **Axonal growth** (lines 152-230): reads axonal growth CSVs +
-   t-test. Feeds Fig 1k (extension and retraction duration of axon
-   and minor neurites in E15.5 cortical slice culture. N = 28
-   unpolarized neurons and 20 axons from 3 experiments.
-   Kruskal-Wallis test).
+   plots wave_count.pdf. **→ Fig 1i** (line 84 of docx: "Frequency of
+   somatic actin waves in unpolarized neurons of E15.5 cortical slice.
+   N = 26 neurons from 3 experiments.").
+2. **Axonal growth** (lines 152-230): reads axonal growth CSVs and
+   plots the comparison. Feeds Fig 1k (extension and retraction
+   duration of axon and minor neurites in E15.5 cortical slice culture.
+   N = 28 unpolarized neurons and 20 axons from 3 experiments).
 3. **Neurite growth** (lines 239+): same for non-axon neurites.
    Feeds Fig 1l (extension and retraction velocities of axon and
    minor neurites).

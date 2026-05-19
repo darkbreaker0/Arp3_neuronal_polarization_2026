@@ -5,7 +5,7 @@ output: html_notebook
 
 <!--
 # Fig 3i - Percentage of DIV-1 vs DIV-3 polarized neurons whose axons
-# were retracted by CK-666 (binary t-test).
+# were retracted by CK-666.
 
 ## What this file does
 
@@ -13,8 +13,7 @@ output: html_notebook
    (range A1:F17) — Excel-format per-experiment summary table with
    columns including ``Axon_retracted...5`` (the % retracted).
 2. Groups experiments by DIV: DIV-1 + DIV-2 vs DIV-3 + DIV-4.
-3. Plots boxplot + jittered points, comparing the two DIV groups with
-   ``stat_compare_means(method = "t.test", paired = F)``.
+3. Plots boxplot + jittered points comparing the two DIV groups.
 4. Saves ``retracted_axon_percentage_DIV1_DIV3.pdf`` (line 124).
 
 ## Manuscript panel

@@ -45,7 +45,6 @@ D:/DVElite/Myl_patch_quant_ExtFig. 6e/Patch_analysis.Rmd
   * ED Fig 6e - Arp3 and MRLC patch lifetime by compartment (GC/shaft/soma).
                 For Arp3: N = 2490/1203/2206 (same as ED Fig 3f).
                 For MRLC: N = 2995/3920/2703 (12 neurons, 3 experiments).
-                Stat: Kruskal-Wallis + Dunn's, Bonferroni.
                 Output: Myl_Arp3_LifeTime.eps, Myl_Arp3_LifeTime.csv
 
   Essentiality: Replicate-QC. Canonical:

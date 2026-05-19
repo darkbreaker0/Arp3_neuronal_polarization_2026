@@ -24,7 +24,7 @@ params:
       KO_actin_int.rds  (produced here)
       KO_length.rds     (produced here)
   alongside the C450M / T17N siblings' .rds and the WT data, then runs
-  Kruskal-Wallis + Dunn across all PA-Rac1 conditions.
+  the multi-condition comparison across all PA-Rac1 conditions.
 
   Essentiality: Essential. Pairs with the 2 sibling precursors.
 

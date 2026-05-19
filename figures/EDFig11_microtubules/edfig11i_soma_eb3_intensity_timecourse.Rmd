@@ -25,7 +25,7 @@ These two files look similar at first read but compute different things:
 |---|---|---|
 | ROI | **Soma** (`soma_EB3.csv`) | **Neurite tip** (`Tip_EB3.csv`) |
 | Time treatment | **Binned timecourse** (25-frame bins) | **Single timepoint** per condition |
-| Comparison | Bin 0 vs bin 4 (paired *t*-test) | Before vs CK666 vs Washout (Wilcoxon) |
+| Comparison | Bin 0 vs bin 4 (paired, within cell) | Before vs CK666 vs Washout (three-condition) |
 | Source Data | ED Fig 11i (`Batch \| bin \| cell \| Intensity_norm`) | ED Fig 11f (`Cell_id \| IntDen \| Condition \| Batch \| Label`) |
 | Output PDFs | `soma_EB3_timelapse.pdf`, `soma_EB3.pdf` | `TipEB3_CK666.pdf` |
 
