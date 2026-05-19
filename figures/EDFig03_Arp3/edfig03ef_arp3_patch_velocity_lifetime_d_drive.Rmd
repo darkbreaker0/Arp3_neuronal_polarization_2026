@@ -13,7 +13,6 @@ output: html_notebook
 
   * ED Fig 3e - Moving velocity of Arp3 patches by compartment
                 (GC / shaft / soma). N = 2490/1203/2206 patches.
-                Stat: Kruskal-Wallis + Dunn's.
                 Output: MSD.csv (mean squared displacement)
   * ED Fig 3f - Arp3 patch lifetime (same population).
                 Output: Arp3_lifetime.csv

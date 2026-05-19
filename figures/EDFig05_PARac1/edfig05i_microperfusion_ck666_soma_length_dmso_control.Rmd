@@ -15,8 +15,8 @@ condition only:
 2. Classifies frames as ``1_pre_perfusion`` / ``2_in_perfusion`` /
    ``3_post_perfusion`` based on metadata-recorded perfusion timing.
 3. Classifies ROIs as ``perfused`` (Roi_1) vs ``non-perfused``.
-4. Compares Pre/During/Post intensity + length values with paired
-   Wilcoxon (within cell) + unpaired Wilcoxon (between conditions).
+4. Compares Pre/During/Post intensity + length values within each cell
+   and between perfused vs non-perfused ROIs.
 5. Multiple ggsave outputs.
 
 ## Manuscript panel mapping

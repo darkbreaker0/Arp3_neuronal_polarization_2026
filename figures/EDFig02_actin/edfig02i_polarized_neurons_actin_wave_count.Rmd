@@ -5,8 +5,7 @@ output: html_notebook
 
 <!--
 # ED Fig 2i - Frequency of actin waves per axon and minor neurite,
-# before and after polarization. DIV-3 polarized neurons. Paired
-# Wilcoxon test with Holm correction.
+# before and after polarization (DIV-3 polarized neurons).
 
 ## What this file does
 
@@ -17,11 +16,10 @@ For each DIV-3 polarized neuron movie:
    neurite) vs `minor` (the short ones).
 3. Counts waves per neurite class per cell.
 4. Converts to events per hour.
-5. Compares axon vs minor wave frequency with a paired Wilcoxon
-   signed-rank test (one pairing = one cell).
+5. Compares axon vs minor wave frequency per cell.
 6. Saves `wave_count_2.rds` (per-cell wave-count summary, feeds
    Source Data `ED Fig 2i`).
-7. Saves `DIV3_wave_count.pdf` (violin/box/jitter plot).
+7. Saves `DIV3_wave_count.pdf` (violin / box / jitter plot).
 
 ## Manuscript panel
 
@@ -36,7 +34,6 @@ G:/Figure S2_actin/Fig. S2h/Polarized_neurons/R_scripts/wave_count.Rmd
 (Section A only.)
 -->
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
 
 Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
 
